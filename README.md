@@ -1,7 +1,7 @@
 # YOLOv5(Tone Mapping + Gaussian Blur)
 
 - **Project Name**: YOLOv5(Tone Mapping + Gaussian Blur) (sub 실험)
-- **Project Member**: 김예지, 서영홍
+- **Project Member**: 서영홍, 김예지
 
 ## 요약
 
