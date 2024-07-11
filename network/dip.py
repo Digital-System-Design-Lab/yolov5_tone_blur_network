@@ -1,14 +1,9 @@
 #! /usr/bin/env python
 # coding=utf-8
-import torch
 import torch.nn as nn
-import functools
-
-import numpy as np
 
 from configs.train_config import cfg
 
-import time
 
 def conv_downsample(in_filters, out_filters, normalization=False):
     layers = [nn.Conv2d(in_filters, out_filters, 3, stride=2, padding=1)]
@@ -17,12 +12,13 @@ def conv_downsample(in_filters, out_filters, normalization=False):
         layers.append(nn.InstanceNorm2d(out_filters, affine=True))
     return layers
 
+
 class CNN_PP(nn.Module):
     def __init__(self, in_channels=3):
         super(CNN_PP, self).__init__()
 
         self.model = nn.Sequential(
-            nn.Upsample(size=(256,256),mode='bilinear'),
+            nn.Upsample(size=(256, 256), mode="bilinear"),
             nn.Conv2d(3, 16, 3, stride=2, padding=1),
             nn.LeakyReLU(0.2),
             nn.InstanceNorm2d(16, affine=True),
@@ -43,19 +39,13 @@ class CNN_PP(nn.Module):
         self.filtered_images = []
 
         for j, filter in enumerate(filters):
-
-            self.filtered_image_batch, filter_parameter = filter.apply(
-                self.filtered_image_batch, self.Pr)
+            self.filtered_image_batch, filter_parameter = filter.apply(self.filtered_image_batch, self.Pr)
             self.filter_parameters.append(filter_parameter)
             self.filtered_images.append(self.filtered_image_batch)
 
         return self.filtered_image_batch, self.filtered_images, self.Pr, self.filter_parameters
 
 
-
 def DIP():
     model = CNN_PP()
     return model
-
-
-

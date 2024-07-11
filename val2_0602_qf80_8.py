@@ -36,6 +36,18 @@ if str(ROOT) not in sys.path:
     sys.path.append(str(ROOT))  # add ROOT to PATH
 ROOT = Path(os.path.relpath(ROOT, Path.cwd()))  # relative
 
+
+import torch.nn as nn
+import torch.nn.functional as F
+import torchvision.models as models
+from einops import rearrange  # pip install einops (텐서를 좀 더 자유자재로 쓸수있게함)
+
+# import torchvision.transforms.functional as B
+# -----------bpp---------------------
+import torchjpeg.torchjpeg.src.torchjpeg.dct as TJ_dct  # torchjpeg 에서 dct 가져오기
+import torchjpeg.torchjpeg.src.torchjpeg.dct._block as TJ_block  # 추가
+import torchjpeg.torchjpeg.src.torchjpeg.dct._color as TJ_ycbcr  # 추가
+import torchjpeg.torchjpeg.src.torchjpeg.quantization.ijg as TJ_ijg  # torchjpeg에서 quantization 가져오기
 from models.common import DetectMultiBackend
 from utils.callbacks import Callbacks
 from utils.dataloaders import create_dataloader
@@ -60,28 +72,11 @@ from utils.metrics import ConfusionMatrix, ap_per_class, box_iou
 from utils.plots import output_to_target, plot_images, plot_val_study
 from utils.torch_utils import select_device, smart_inference_mode
 
-import torchvision.models as models
-import torch.nn.functional as F
-from PIL import Image
-import io
-import torchvision.transforms as transforms
-import numpy as np
-import torch
-import torch.nn as nn
 
-import pandas as pd
-import torch
-#import torchvision.transforms.functional as B
-
-#-----------bpp---------------------
-import torchjpeg.torchjpeg.src.torchjpeg.dct as TJ_dct#torchjpeg 에서 dct 가져오기
-import torchjpeg.torchjpeg.src.torchjpeg.dct._color as TJ_ycbcr #추가
-import torchjpeg.torchjpeg.src.torchjpeg.quantization.ijg as TJ_ijg #torchjpeg에서 quantization 가져오기
-import torchjpeg.torchjpeg.src.torchjpeg.dct._block as TJ_block #추가
-from einops import rearrange # pip install einops (텐서를 좀 더 자유자재로 쓸수있게함)
 def gaussian_blur(image, kernel_size, sigma):
     """
     이미지에 가우시안 블러를 적용합니다.
+
     image: 이미지 데이터를 나타내는 텐서
     kernel_size: 커널의 크기 (홀수)
     sigma: 가우시안 분포의 표준편차
@@ -94,9 +89,9 @@ def gaussian_blur(image, kernel_size, sigma):
     x_coords = torch.arange(kernel_size[0]).float() - radius
     x_grid = x_coords.repeat(kernel_size[1]).view(kernel_size[1], kernel_size[0])
     y_grid = x_grid.t()
-    sq_dist = x_grid ** 2 + y_grid ** 2
+    sq_dist = x_grid**2 + y_grid**2
     sq_dist = sq_dist.to(image.device)
-    kernel = torch.exp(-sq_dist / (2 * sigma ** 2))
+    kernel = torch.exp(-sq_dist / (2 * sigma**2))
     kernel = kernel / kernel.sum()
 
     # 커널을 이미지의 차원과 맞춰주기
@@ -108,18 +103,22 @@ def gaussian_blur(image, kernel_size, sigma):
     blurred_image = F.conv2d(image, kernel, padding=padding, groups=image.size(1))
     return blurred_image
 
-def delta_encode(coefs):#DCT 계수에 대해 / 델타 인코딩 수행(데이터 압축에서 자주 사용되는 기법)
-    #델타 인코딩은 연속된 데이터 사이의 차이(델타)만 저장하는 방식
-    #입력은 DCT 계수 텐서(coefs) // 각 블록의 dc 계수에 대해 델타 인코딩 적용 / ac는 그대로 유지
-    #coefs 크기 (B, C, H*W/64, 64)
-    #H*W/64가 블록갯수임
-    ac = coefs[..., 1:]             # b 1 4096 63 #나머지는 AC 계수(63개)
-    dc = coefs[..., 0:1]            # b 1 4096 1 #첫번째 요소는 DC계수(1개) 모든 블록에서 DC값을 추출
-    dc = torch.cat([dc[..., 0:1, :], dc[..., 1:, :] - dc[..., :-1, :]], dim=-2)#각 DC 계수에서 바로 이전 DC 계수를 빼는 연산 
-    #첫번째 DC 계수를 그대로 두고(델타 인코딩에서 시작점으로 사용), 그 이후 각 DC 계수에서 바로 이전 DC 계수를 뱨는 연산을 수행
-    return torch.cat([dc, ac], dim=-1) # 델타 인코딩된 계수를 반환(데이터 중복성을 줄이고 압축률을 개선하는데 도움)
 
-class DC_Predictor(nn.Module):# DC 값은 1개(0,0 point)
+def delta_encode(coefs):  # DCT 계수에 대해 / 델타 인코딩 수행(데이터 압축에서 자주 사용되는 기법)
+    # 델타 인코딩은 연속된 데이터 사이의 차이(델타)만 저장하는 방식
+    # 입력은 DCT 계수 텐서(coefs) // 각 블록의 dc 계수에 대해 델타 인코딩 적용 / ac는 그대로 유지
+    # coefs 크기 (B, C, H*W/64, 64)
+    # H*W/64가 블록갯수임
+    ac = coefs[..., 1:]  # b 1 4096 63 #나머지는 AC 계수(63개)
+    dc = coefs[..., 0:1]  # b 1 4096 1 #첫번째 요소는 DC계수(1개) 모든 블록에서 DC값을 추출
+    dc = torch.cat(
+        [dc[..., 0:1, :], dc[..., 1:, :] - dc[..., :-1, :]], dim=-2
+    )  # 각 DC 계수에서 바로 이전 DC 계수를 빼는 연산
+    # 첫번째 DC 계수를 그대로 두고(델타 인코딩에서 시작점으로 사용), 그 이후 각 DC 계수에서 바로 이전 DC 계수를 뱨는 연산을 수행
+    return torch.cat([dc, ac], dim=-1)  # 델타 인코딩된 계수를 반환(데이터 중복성을 줄이고 압축률을 개선하는데 도움)
+
+
+class DC_Predictor(nn.Module):  # DC 값은 1개(0,0 point)
     def __init__(self):
         super(DC_Predictor, self).__init__()
         self.fc1 = nn.Linear(1, 16)
@@ -135,7 +134,8 @@ class DC_Predictor(nn.Module):# DC 값은 1개(0,0 point)
         x = self.fc4(x)
         return x
 
-class AC_Predictor(nn.Module):# AC 값은 63개 (0,0 제외) 8x8 block 기준
+
+class AC_Predictor(nn.Module):  # AC 값은 63개 (0,0 제외) 8x8 block 기준
     def __init__(self):
         super(AC_Predictor, self).__init__()
         self.lstm = nn.LSTM(1, 16, bidirectional=True, batch_first=True)
@@ -154,7 +154,8 @@ class AC_Predictor(nn.Module):# AC 값은 63개 (0,0 제외) 8x8 block 기준
         x = self.fc4(x)
         return x
 
-class Model_bpp_estimator(nn.Module):#bpp 추정
+
+class Model_bpp_estimator(nn.Module):  # bpp 추정
     def __init__(self):
         super(Model_bpp_estimator, self).__init__()
         self.dc_predictor = DC_Predictor()
@@ -165,8 +166,9 @@ class Model_bpp_estimator(nn.Module):#bpp 추정
         ac_cl = self.ac_predictor(x[..., 1:])
         outputs = dc_cl + ac_cl
         return outputs
-    
-class ReinhardToneMapping(nn.Module):#HDR to LDR 
+
+
+class ReinhardToneMapping(nn.Module):  # HDR to LDR
     def __init__(self, white_point=1.0):
         super(ReinhardToneMapping, self).__init__()
         self.white_point = white_point
@@ -174,22 +176,22 @@ class ReinhardToneMapping(nn.Module):#HDR to LDR
     def forward(self, hdr_image, predicted_weights):
         """
         Apply the Reinhard tone mapping operator to an HDR image using dynamic luminance weights.
-        
+
         Parameters:
         - hdr_image (Tensor): An HDR image tensor of shape (B, C, H, W).
         - predicted_weights (Tensor): A tensor of shape (B, 3) containing dynamic weights for R, G, B channels.
-        
+
         - ldr_image (Tensor): The LDR image resulting from the application of Reinhard tone mapping.
         """
         # Ensure predicted_weights is broadcastable to the shape of hdr_image
-        weights = predicted_weights.unsqueeze(0)# (4) -> (1,4)으로 만들기
-        luminance = 0.2126 * hdr_image[:, 0, :, :] + \
-                    0.7152 * hdr_image[:, 1, :, :] + \
-                    0.0722 * hdr_image[:, 2, :, :]
+        weights = predicted_weights.unsqueeze(0)  # (4) -> (1,4)으로 만들기
+        luminance = 0.2126 * hdr_image[:, 0, :, :] + 0.7152 * hdr_image[:, 1, :, :] + 0.0722 * hdr_image[:, 2, :, :]
         # Reinhard tone mapping
-        ldr_luminance = luminance / (1 + luminance / (weights + 1e-6)) # Luminance Factor
+        ldr_luminance = luminance / (1 + luminance / (weights + 1e-6))  # Luminance Factor
         # Scale factor for maintaining color ratios
-        scale_factor = ldr_luminance / (luminance + 1e-6)  # Adding a small value to avoid division by zero(입실론 추가해서 10^-6)
+        scale_factor = ldr_luminance / (
+            luminance + 1e-6
+        )  # Adding a small value to avoid division by zero(입실론 추가해서 10^-6)
         # Apply scale factor to each channel 각 채널에 scale factor 곱해서 ldr_image 만들기
         ldr_image = hdr_image * scale_factor.unsqueeze(1)  # Unsqueeze to match the dimension of hdr_image
 
@@ -198,21 +200,22 @@ class ReinhardToneMapping(nn.Module):#HDR to LDR
             ldr_image *= self.white_point
         return ldr_image
 
+
 class DynamicLuminanceWeightNetwork(nn.Module):
     def __init__(self):
         super(DynamicLuminanceWeightNetwork, self).__init__()
         # Upsample 층 추가 (입력 이미지를 224x224로 조정)
-        self.upsample = nn.Upsample(size=(224, 224), mode='bilinear', align_corners=False)
-        
+        self.upsample = nn.Upsample(size=(224, 224), mode="bilinear", align_corners=False)
+
         # ResNet18 모델 불러오기 (마지막 완전 연결층 제외)
         self.resnet = models.resnet18(pretrained=True)
         num_ftrs = self.resnet.fc.in_features  # 마지막 완전 연결층의 입력 특성 수
         self.resnet.fc = nn.Identity()  # 마지막 완전 연결층 제거
-        
+
         # ResNet 부분의 파라미터를 freeze
         for param in self.resnet.parameters():
             param.requires_grad = False
-            
+
         # 새로운 완전 연결층 추가
         self.fc1 = nn.Linear(num_ftrs, 512)
         self.bn1 = nn.BatchNorm1d(512)
@@ -224,7 +227,7 @@ class DynamicLuminanceWeightNetwork(nn.Module):
         self.bn3 = nn.BatchNorm1d(64)
         self.dropout3 = nn.Dropout(0.5)
         self.fc4 = nn.Linear(64, 2)  # 최종 출력 층
-        
+
         # 새로운 완전 연결층 가중치 초기화
         self._init_weights()
 
@@ -232,7 +235,7 @@ class DynamicLuminanceWeightNetwork(nn.Module):
         # He 초기화 방법을 사용한 가중치 초기화
         for m in self.modules():
             if isinstance(m, nn.Linear):
-                nn.init.kaiming_uniform_(m.weight, nonlinearity='relu')
+                nn.init.kaiming_uniform_(m.weight, nonlinearity="relu")
                 if m.bias is not None:
                     nn.init.constant_(m.bias, 0)
 
@@ -252,9 +255,10 @@ class DynamicLuminanceWeightNetwork(nn.Module):
         # 첫 번째 출력에 대해서는 Sigmoid 적용 (범위는 이미 [0, 1])
         x[:, 0] = torch.sigmoid(x[:, 0]) * 0.5 + 0.5
         # 두 번째 출력에 대해서는 Sigmoid 적용 후 [0.5, 2.5] 범위로 조정
-        x[:, 1] = torch.sigmoid(x[:, 1]) * 0.5 + 0.5 # 0.5 ~ 1.5
+        x[:, 1] = torch.sigmoid(x[:, 1]) * 0.5 + 0.5  # 0.5 ~ 1.5
         return x
-    
+
+
 def save_one_txt(predn, save_conf, shape, file):
     # Save one txt result
     gn = torch.tensor(shape)[[1, 0, 1, 0]]  # normalization gain whwh
@@ -264,10 +268,12 @@ def save_one_txt(predn, save_conf, shape, file):
         with open(file, "a") as f:
             f.write(("%g " * len(line)).rstrip() % line + "\n")
 
-def print_model_weights(model):#epoch 끝날때 마다 weight, bias 바뀌는지 확인
+
+def print_model_weights(model):  # epoch 끝날때 마다 weight, bias 바뀌는지 확인
     fc4_weight = model.fc4.weight.data
     fc4_bias = model.fc4.bias.data
     print(f"fc4 weight: {fc4_weight}, bias: {fc4_bias}")
+
 
 def save_one_json(predn, jdict, path, class_map):
     # Save one JSON result {"image_id": 42, "category_id": 18, "bbox": [258.15, 41.29, 348.26, 243.78], "score": 0.236}
@@ -287,7 +293,7 @@ def save_one_json(predn, jdict, path, class_map):
 
 def process_batch(detections, labels, iouv):
     """
-    Return correct prediction matrix. 정확한 예측 matrix 반환
+    Return correct prediction matrix. 정확한 예측 matrix 반환.
 
     Arguments:
         detections (array[N, 6]), x1, y1, x2, y2, conf, class
@@ -311,9 +317,8 @@ def process_batch(detections, labels, iouv):
     return torch.tensor(correct, dtype=torch.bool, device=iouv.device)
 
 
-            
 @smart_inference_mode()
-def run(#train에서 epoch 끝날때마다 시행
+def run(  # train에서 epoch 끝날때마다 시행
     data,
     weights=None,  # model.pt path(s)
     batch_size=32,  # batch size 32 -> 1로 수정 (default)
@@ -341,33 +346,37 @@ def run(#train에서 epoch 끝날때마다 시행
     save_dir=Path(""),
     plots=True,
     callbacks=Callbacks(),
-    compute_loss=None, #기본이 None이네
-    dynamic_luminance_network=None, #0220 추가
-    dynamic_luminance_network_weights=None #0220 추가
+    compute_loss=None,  # 기본이 None이네
+    dynamic_luminance_network=None,  # 0220 추가
+    dynamic_luminance_network_weights=None,  # 0220 추가
 ):
     # Initialize/load model and set device
     training = model is not None
     if training:  # called by train.py train에서 부르는거?
         device, pt, jit, engine = next(model.parameters()).device, True, False, False  # get model device, PyTorch model
         half &= device.type != "cpu"  # half precision only supported on CUDA
-        #ckpt = torch.load(weights, map_location=device)  # 체크포인트 로드 0220
+        # ckpt = torch.load(weights, map_location=device)  # 체크포인트 로드 0220
         model.half() if half else model.float()
         if dynamic_luminance_network is None:
-            dynamic_luminance_network = DynamicLuminanceWeightNetwork().to(device).half() if half else DynamicLuminanceWeightNetwork().to(device).float()
+            dynamic_luminance_network = (
+                DynamicLuminanceWeightNetwork().to(device).half()
+                if half
+                else DynamicLuminanceWeightNetwork().to(device).float()
+            )
             if dynamic_luminance_network is not None:
                 checkpoint = torch.load(dynamic_luminance_network_weights)
-                dynamic_luminance_network_state_dict = checkpoint['dynamic_luminance_network']
+                dynamic_luminance_network_state_dict = checkpoint["dynamic_luminance_network"]
                 dynamic_luminance_network.load_state_dict(dynamic_luminance_network_state_dict)
                 print("Loaded dynamic_luminance_network weights")
         print("Model weights start validation:")
         print_model_weights(dynamic_luminance_network)
-        dynamic_luminance_network.half() if half else dynamic_luminance_network.float() #초기화
+        dynamic_luminance_network.half() if half else dynamic_luminance_network.float()  # 초기화
         reinhard_tone_mapping = ReinhardToneMapping().to(device)
-        bitEstimator = Model_bpp_estimator().to(device) #bpp estimator 인스턴스 생성
-        bitEstimator.load_state_dict(torch.load('./bppmodel.pt')) # 가중치 가져오기(pretrained)
+        bitEstimator = Model_bpp_estimator().to(device)  # bpp estimator 인스턴스 생성
+        bitEstimator.load_state_dict(torch.load("./bppmodel.pt"))  # 가중치 가져오기(pretrained)
         # bitEstimator.half() if half else bitEstimator.float()
         # 모든 파라미터를 순회하며 freeze
-        for param in bitEstimator.parameters():#bpp는 freeze 한다.
+        for param in bitEstimator.parameters():  # bpp는 freeze 한다.
             param.requires_grad = False
     else:  # called directly (train.py에서 부르지말고 val.py를 실행)
         device = select_device(device, batch_size=batch_size)
@@ -376,21 +385,27 @@ def run(#train에서 epoch 끝날때마다 시행
         (save_dir / "labels" if save_txt else save_dir).mkdir(parents=True, exist_ok=True)  # make dir
 
         # Load model
-        model = DetectMultiBackend(weights, device=device, dnn=dnn, data=data, fp16=half)# YOLOv5 MultiBackend class for python inference on various backends
-        ckpt = torch.load(weights[0])#, map_location=device) #0220
-        dynamic_luminance_network = DynamicLuminanceWeightNetwork().to(device).half() if half else DynamicLuminanceWeightNetwork().to(device).float() #syh edit dfm 로드
-        bitEstimator = Model_bpp_estimator().to(device) #bpp estimator 인스턴스 생성
-        bitEstimator.load_state_dict(torch.load('./bppmodel.pt')) # 가중치 가져오기(pretrained)
+        model = DetectMultiBackend(
+            weights, device=device, dnn=dnn, data=data, fp16=half
+        )  # YOLOv5 MultiBackend class for python inference on various backends
+        ckpt = torch.load(weights[0])  # , map_location=device) #0220
+        dynamic_luminance_network = (
+            DynamicLuminanceWeightNetwork().to(device).half()
+            if half
+            else DynamicLuminanceWeightNetwork().to(device).float()
+        )  # syh edit dfm 로드
+        bitEstimator = Model_bpp_estimator().to(device)  # bpp estimator 인스턴스 생성
+        bitEstimator.load_state_dict(torch.load("./bppmodel.pt"))  # 가중치 가져오기(pretrained)
         # bitEstimator.half() if half else bitEstimator.float()
         # 모든 파라미터를 순회하며 freeze
-        for param in bitEstimator.parameters():#bpp는 freeze 한다.
+        for param in bitEstimator.parameters():  # bpp는 freeze 한다.
             param.requires_grad = False
         reinhard_tone_mapping = ReinhardToneMapping().to(device)
-        if 'dynamic_luminance_network' in ckpt: #0220
-            dynamic_luminance_network.load_state_dict(ckpt['dynamic_luminance_network']) #0220
-            print("Loaded dynamic_luminance_network weights@@@@@@")#0220
-        else:#0220
-            print("No dynamic_luminance_network weights found in checkpoint@@@@@") #0220
+        if "dynamic_luminance_network" in ckpt:  # 0220
+            dynamic_luminance_network.load_state_dict(ckpt["dynamic_luminance_network"])  # 0220
+            print("Loaded dynamic_luminance_network weights@@@@@@")  # 0220
+        else:  # 0220
+            print("No dynamic_luminance_network weights found in checkpoint@@@@@")  # 0220
         stride, pt, jit, engine = model.stride, model.pt, model.jit, model.engine
         imgsz = check_img_size(imgsz, s=stride)  # check image size
         half = model.fp16  # FP16 supported on limited backends with CUDA
@@ -407,8 +422,8 @@ def run(#train에서 epoch 끝날때마다 시행
 
     # Configure
     model.eval()
-    dynamic_luminance_network.eval() #syh edit
-    cuda = device.type != "cpu" #cpu가 아니면 cuda = True
+    dynamic_luminance_network.eval()  # syh edit
+    cuda = device.type != "cpu"  # cpu가 아니면 cuda = True
     is_coco = isinstance(data.get("val"), str) and data["val"].endswith(f"coco{os.sep}val2017.txt")  # COCO dataset
     nc = 1 if single_cls else int(data["nc"])  # number of classes
     iouv = torch.linspace(0.5, 0.95, 10, device=device)  # iou vector for mAP@0.5:0.95
@@ -446,7 +461,7 @@ def run(#train에서 epoch 끝날때마다 시행
     s = ("%22s" + "%11s" * 6) % ("Class", "Images", "Instances", "P", "R", "mAP50", "mAP50-95")
     tp, fp, p, r, f1, mp, mr, map50, ap50, map = 0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0
     dt = Profile(device=device), Profile(device=device), Profile(device=device)  # profiling times
-    loss = torch.zeros(3, device=device) #초기화
+    loss = torch.zeros(3, device=device)  # 초기화
     bpp_loss_val = torch.zeros(1, device=device)
     jdict, stats, ap, ap_class = [], [], [], []
     callbacks.run("on_val_start")
@@ -455,76 +470,110 @@ def run(#train에서 epoch 끝날때마다 시행
     #     if "extended_fc" in name:
     #         print(f"{name}: {param.data}")
     pbar = tqdm(dataloader, desc=s, bar_format=TQDM_BAR_FORMAT)  # progress bar
-    for batch_i, (im, targets, paths, shapes) in enumerate(pbar): #시작
+    for batch_i, (im, targets, paths, shapes) in enumerate(pbar):  # 시작
         callbacks.run("on_val_batch_start")
-        with dt[0]: #데이터 전처리(pre-process)
+        with dt[0]:  # 데이터 전처리(pre-process)
             if cuda:
                 im = im.to(device, non_blocking=True)
                 targets = targets.to(device)
             im = im.half() if half else im.float()  # uint8 to fp16/32 데이터 타입 조절
-            #print('im_size : ',im.size())
+            # print('im_size : ',im.size())
             # print("paths : ", paths)#경로
             # #이미지 id 추출
             # img_ids = [path.split('/')[-1].split('.')[0].lstrip('0') for path in paths]
             im /= 255  # 0 - 255 to 0.0 - 1.0
             x = im.size()
             dynamic_luminance_weights = dynamic_luminance_network(im)
-            print('\ndynamic_luminance_weights : ',dynamic_luminance_weights)
+            print("\ndynamic_luminance_weights : ", dynamic_luminance_weights)
             resized_imgs = []
             for img, factor in zip(im, dynamic_luminance_weights):
                 resized_img = reinhard_tone_mapping(img.unsqueeze(0), factor[0])
                 kernel_size = 5 if factor[1] >= 0.8 else 3
                 resized_img = gaussian_blur(resized_img, kernel_size=kernel_size, sigma=factor[1])
                 resized_imgs.append(resized_img)
-            im = torch.cat(resized_imgs, dim=0)#합치기
-            print("im size : ",im.size())
-            im_jpeg = F.interpolate(im, size=(imgsz, imgsz), mode='bilinear', align_corners=False) # YOLOv5에 640x640 크기로 들어감
-            resized_imgs_to_ycbcr = TJ_ycbcr.to_ycbcr(im_jpeg.float(), 1.0, half = False) # 0405코드 추가 // RGB 이미지를 YCbcr로 바꾸기(shape은 동일/ 단 픽셀은 [0,1] 값을 가짐)
+            im = torch.cat(resized_imgs, dim=0)  # 합치기
+            print("im size : ", im.size())
+            im_jpeg = F.interpolate(
+                im, size=(imgsz, imgsz), mode="bilinear", align_corners=False
+            )  # YOLOv5에 640x640 크기로 들어감
+            resized_imgs_to_ycbcr = TJ_ycbcr.to_ycbcr(
+                im_jpeg.float(), 1.0, half=False
+            )  # 0405코드 추가 // RGB 이미지를 YCbcr로 바꾸기(shape은 동일/ 단 픽셀은 [0,1] 값을 가짐)
             resized_imgs_to_ycbcr = torch.clamp(resized_imgs_to_ycbcr, 0, 1)
-            #print("resized_imgs_to_ycbcr size : ",resized_imgs_to_ycbcr.size())
+            # print("resized_imgs_to_ycbcr size : ",resized_imgs_to_ycbcr.size())
             quality = 80
-            quantized_dct_y = TJ_ijg.compress_coefficients(resized_imgs_to_ycbcr[:, 0:1, :, :], quality, "luma") # 0405코드 추가 //Y채널(luma)에 대해 dct를 수행하고 나온 coefficient로 quality factor가 60인 경우에 맞게 양자화.
-            quantized_dct_cb = TJ_ijg.compress_coefficients(resized_imgs_to_ycbcr[:, 1:2, :, :], quality, "chroma") # 0405코드 추가 // Cb채널(chroma)에 대해 dct를 수행하고 나온 coefficient로 quality factor가 60인 경우에 맞게 양자화.
-            quantized_dct_cr = TJ_ijg.compress_coefficients(resized_imgs_to_ycbcr[:, 2:3, :, :], quality, "chroma") # 0405코드 추가 // Cr채널(chroma)에 대해 dct를 수행하고 나온 coefficient로 quality factor가 60인 경우에 맞게 양자화.
-            dequantized_dct_y = TJ_ijg.decompress_coefficients(quantized_dct_y , quality, "luma") # 0405코드 추가 //Y채널(luma)에 대해 dct를 수행하고 나온 coefficient로 quality factor가 60인 경우에 맞게 양자화.
-            dequantized_dct_cb = TJ_ijg.decompress_coefficients(quantized_dct_cb, quality, "chroma") # 0405코드 추가 // Cb채널(chroma)에 대해 dct를 수행하고 나온 coefficient로 quality factor가 60인 경우에 맞게 양자화.
-            dequantized_dct_cr = TJ_ijg.decompress_coefficients(quantized_dct_cr, quality, "chroma") # 0405코드 추가 // Cr채널(chroma)에 대해 dct를 수행하고 나온 coefficient로 quality factor가 60인 경우에 맞게 양자화.
-            quantized_dct = torch.cat([quantized_dct_y, quantized_dct_cb, quantized_dct_cr], dim=1) #YCbCr 채널의 양자화된 DCT 계수를 하나의 텐서로 합치기(concat)
-            dequantized_dct = torch.cat([dequantized_dct_y, dequantized_dct_cb, dequantized_dct_cr], dim=1) #YCbCr 채널의 양자화된 DCT 계수를 하나의 텐서로 합치기(concat)
-            dequantized_dct = TJ_ycbcr.to_rgb(dequantized_dct, data_range = 1.0, half= False)
+            quantized_dct_y = TJ_ijg.compress_coefficients(
+                resized_imgs_to_ycbcr[:, 0:1, :, :], quality, "luma"
+            )  # 0405코드 추가 //Y채널(luma)에 대해 dct를 수행하고 나온 coefficient로 quality factor가 60인 경우에 맞게 양자화.
+            quantized_dct_cb = TJ_ijg.compress_coefficients(
+                resized_imgs_to_ycbcr[:, 1:2, :, :], quality, "chroma"
+            )  # 0405코드 추가 // Cb채널(chroma)에 대해 dct를 수행하고 나온 coefficient로 quality factor가 60인 경우에 맞게 양자화.
+            quantized_dct_cr = TJ_ijg.compress_coefficients(
+                resized_imgs_to_ycbcr[:, 2:3, :, :], quality, "chroma"
+            )  # 0405코드 추가 // Cr채널(chroma)에 대해 dct를 수행하고 나온 coefficient로 quality factor가 60인 경우에 맞게 양자화.
+            dequantized_dct_y = TJ_ijg.decompress_coefficients(
+                quantized_dct_y, quality, "luma"
+            )  # 0405코드 추가 //Y채널(luma)에 대해 dct를 수행하고 나온 coefficient로 quality factor가 60인 경우에 맞게 양자화.
+            dequantized_dct_cb = TJ_ijg.decompress_coefficients(
+                quantized_dct_cb, quality, "chroma"
+            )  # 0405코드 추가 // Cb채널(chroma)에 대해 dct를 수행하고 나온 coefficient로 quality factor가 60인 경우에 맞게 양자화.
+            dequantized_dct_cr = TJ_ijg.decompress_coefficients(
+                quantized_dct_cr, quality, "chroma"
+            )  # 0405코드 추가 // Cr채널(chroma)에 대해 dct를 수행하고 나온 coefficient로 quality factor가 60인 경우에 맞게 양자화.
+            quantized_dct = torch.cat(
+                [quantized_dct_y, quantized_dct_cb, quantized_dct_cr], dim=1
+            )  # YCbCr 채널의 양자화된 DCT 계수를 하나의 텐서로 합치기(concat)
+            dequantized_dct = torch.cat(
+                [dequantized_dct_y, dequantized_dct_cb, dequantized_dct_cr], dim=1
+            )  # YCbCr 채널의 양자화된 DCT 계수를 하나의 텐서로 합치기(concat)
+            dequantized_dct = TJ_ycbcr.to_rgb(dequantized_dct, data_range=1.0, half=False)
             dequantized_dct = torch.clamp(dequantized_dct, 0, 1)
-            dequantized_dct = F.interpolate(dequantized_dct, size=(x[2], x[3]), mode='bilinear', align_corners=False) # YOLOv5에 640x640 크기로 들어감
-            #print("quantized_dct size : ",quantized_dct.size())
+            dequantized_dct = F.interpolate(
+                dequantized_dct, size=(x[2], x[3]), mode="bilinear", align_corners=False
+            )  # YOLOv5에 640x640 크기로 들어감
+            # print("quantized_dct size : ",quantized_dct.size())
             blocks = TJ_block.blockify(quantized_dct, 8)
-            blocks = rearrange(blocks, 'b c p h w -> b c p (h w)') # (B, C, 80 *80, 8, 8) -> (B, C, 80* 80, 64) // 여기서 p는 블록 갯수 (델타 인코딩을 하기 위해서)
-            blocks = delta_encode(blocks) # 델타 인코딩 실시 :각 8x8블록의 첫번째 계수를 이용하여 연속된 블록간의 DC 계수 차이만 저장해서 데이터를 더욱 압축) (B, C, 80 * 80, 64) 데이터 압축
-            blocks = rearrange(blocks, 'b c p (h w) -> b c p h w', h = 8, w = 8) #델타 인코딩 끝나면 다시 복원하기 (B,C, 80 * 80, 64) -> (B,C, 80*80, 8, 8)
-            blocks = TJ_block.deblockify(blocks, (imgsz, imgsz)) 
-            blocks = TJ_dct.zigzag(blocks) # (B,C, 640, 640) -> (B, C, L , 64) # zigzag 실시 안에서 8x8블록단위로 다시 처리하고 zigzag 순서에 따라 벡터화 하고있음.
-            blocks = rearrange(blocks, "b c n co -> b (c n) co") # 여기서 n은 벡터화된 DCT 계수의 개수
-            blocks = (torch.log(torch.abs(blocks) + 1)) / (torch.log(torch.Tensor([2]).to(device))) #로그 스케일 변환(데이터를 더 잘 처리할 수 있게)
+            blocks = rearrange(
+                blocks, "b c p h w -> b c p (h w)"
+            )  # (B, C, 80 *80, 8, 8) -> (B, C, 80* 80, 64) // 여기서 p는 블록 갯수 (델타 인코딩을 하기 위해서)
+            blocks = delta_encode(
+                blocks
+            )  # 델타 인코딩 실시 :각 8x8블록의 첫번째 계수를 이용하여 연속된 블록간의 DC 계수 차이만 저장해서 데이터를 더욱 압축) (B, C, 80 * 80, 64) 데이터 압축
+            blocks = rearrange(
+                blocks, "b c p (h w) -> b c p h w", h=8, w=8
+            )  # 델타 인코딩 끝나면 다시 복원하기 (B,C, 80 * 80, 64) -> (B,C, 80*80, 8, 8)
+            blocks = TJ_block.deblockify(blocks, (imgsz, imgsz))
+            blocks = TJ_dct.zigzag(
+                blocks
+            )  # (B,C, 640, 640) -> (B, C, L , 64) # zigzag 실시 안에서 8x8블록단위로 다시 처리하고 zigzag 순서에 따라 벡터화 하고있음.
+            blocks = rearrange(blocks, "b c n co -> b (c n) co")  # 여기서 n은 벡터화된 DCT 계수의 개수
+            blocks = (torch.log(torch.abs(blocks) + 1)) / (
+                torch.log(torch.Tensor([2]).to(device))
+            )  # 로그 스케일 변환(데이터를 더 잘 처리할 수 있게)
             blocks = rearrange(blocks, "b cn co -> (b cn) co")
             # im = F.interpolate(im, scale_factor = 1 / downscaling_factor, mode='bilinear', recompute_scale_factor = True, align_corners=False)
             # im = F.interpolate(im, size=(640, 640), mode='bilinear', align_corners=False)
-            nb, _, height, width = im.shape  # batch size, channels, height, width 
-            #원본 : (1,3,imgsz,imgsz) syh
+            nb, _, height, width = im.shape  # batch size, channels, height, width
+            # 원본 : (1,3,imgsz,imgsz) syh
 
         # Inference
         with dt[1]:
             dequantized_dct = dequantized_dct.to(im.dtype)
-            preds, train_out = model(dequantized_dct) if compute_loss else (model(dequantized_dct, augment=augment), None)
-            pred_code_len=bitEstimator(blocks) # bpp 추정
-            bpp_loss=rearrange(pred_code_len,'(b p1) 1  -> b p1',b=quantized_dct.shape[0])
-            bpp_loss=torch.sum(bpp_loss, dim = 1)
-            bpp_loss=torch.mean(bpp_loss) 
-            bpp_loss=bpp_loss / (quantized_dct.shape[1]*quantized_dct.shape[2]*quantized_dct.shape[3])
-            print('\nbpp_loss : ',bpp_loss)
+            preds, train_out = (
+                model(dequantized_dct) if compute_loss else (model(dequantized_dct, augment=augment), None)
+            )
+            pred_code_len = bitEstimator(blocks)  # bpp 추정
+            bpp_loss = rearrange(pred_code_len, "(b p1) 1  -> b p1", b=quantized_dct.shape[0])
+            bpp_loss = torch.sum(bpp_loss, dim=1)
+            bpp_loss = torch.mean(bpp_loss)
+            bpp_loss = bpp_loss / (quantized_dct.shape[1] * quantized_dct.shape[2] * quantized_dct.shape[3])
+            print("\nbpp_loss : ", bpp_loss)
             bpp_loss_val += bpp_loss
-            #compute_loss가 True라면 손실 계산을 위해 예측과 함께 훈련 출력도 반환(train_out) -> 학습 중에 모델의 성능을 평가하거나, 손실을 계산하기 위해 사용
-            #compute_loss가 False라면, 즉 훈련 중이 아니라 순수하게 모델의 추론 성능을 평가하는 경우(검증, 또는 test 단계) agument 옵션을 사용하여 추론 수행
-            #augment는 데이터 증강으로, 검증 또는 테스트 시 모델의 일반화 능력을 더 잘 평가하기 위해 사용될 수 있음
-            #preds는 예측 결과로, mAP를 측정하기 위해 꼭 필요 / NMS와 같은 후처리 단계를 거쳐 최종적으로 모델의 성능을 평가 하는데 사용
-            #mAP는 모델이 객체를 정확하게 검출하고 분류하는 능력을 종합적으로 평가하는 지표로, 검출 모델의 성능을 평가하는데 널리 사용 
+            # compute_loss가 True라면 손실 계산을 위해 예측과 함께 훈련 출력도 반환(train_out) -> 학습 중에 모델의 성능을 평가하거나, 손실을 계산하기 위해 사용
+            # compute_loss가 False라면, 즉 훈련 중이 아니라 순수하게 모델의 추론 성능을 평가하는 경우(검증, 또는 test 단계) agument 옵션을 사용하여 추론 수행
+            # augment는 데이터 증강으로, 검증 또는 테스트 시 모델의 일반화 능력을 더 잘 평가하기 위해 사용될 수 있음
+            # preds는 예측 결과로, mAP를 측정하기 위해 꼭 필요 / NMS와 같은 후처리 단계를 거쳐 최종적으로 모델의 성능을 평가 하는데 사용
+            # mAP는 모델이 객체를 정확하게 검출하고 분류하는 능력을 종합적으로 평가하는 지표로, 검출 모델의 성능을 평가하는데 널리 사용
 
         # Loss loss 계산
         if compute_loss:
@@ -535,14 +584,14 @@ def run(#train에서 epoch 끝날때마다 시행
         # 검출 성능을 향상시키고 최종 검출 결과의 정확도를 높이는데 기여
         targets[:, 2:] *= torch.tensor((width, height, width, height), device=device)  # to pixels
         lb = [targets[targets[:, 0] == i, 1:] for i in range(nb)] if save_hybrid else []  # for autolabelling
-        with dt[2]: #preds를 전처리함(nms를 통해)
+        with dt[2]:  # preds를 전처리함(nms를 통해)
             preds = non_max_suppression(
                 preds, conf_thres, iou_thres, labels=lb, multi_label=True, agnostic=single_cls, max_det=max_det
             )
-            #conf_thres(신뢰도 임계값) / IoU(Intersection over Union)을 기반으로 중복 검출 제거
-            #multi_label = 하나의 객체가 여러 클래스에 속할 수 있음을 나타냄
-            #max_det :  최대 검출 객체수 제한
-            #agnostic : 클래스에 무관하게 NMS를 적용할 것인지?
+            # conf_thres(신뢰도 임계값) / IoU(Intersection over Union)을 기반으로 중복 검출 제거
+            # multi_label = 하나의 객체가 여러 클래스에 속할 수 있음을 나타냄
+            # max_det :  최대 검출 객체수 제한
+            # agnostic : 클래스에 무관하게 NMS를 적용할 것인지?
 
         # Metrics 성능 지표 계산(예측 <-> 실제 라벨 간의 성능 지표 계산)
         for si, pred in enumerate(preds):
@@ -575,8 +624,8 @@ def run(#train에서 epoch 끝날때마다 시행
                     confusion_matrix.process_batch(predn, labelsn)
             stats.append((correct, pred[:, 4], pred[:, 5], labels[:, 0]))  # (correct, conf, pcls, tcls)
 
-            # Save/log 텍스트 파일이나 JSON 파일로 예측 결과 저장하고, 필요한 경우 콘솔이나 로그에 정보 기록 
-            #필요 X
+            # Save/log 텍스트 파일이나 JSON 파일로 예측 결과 저장하고, 필요한 경우 콘솔이나 로그에 정보 기록
+            # 필요 X
             if save_txt:
                 (save_dir / "labels").mkdir(parents=True, exist_ok=True)
                 save_one_txt(predn, save_conf, shape, file=save_dir / "labels" / f"{path.stem}.txt")
@@ -588,9 +637,11 @@ def run(#train에서 epoch 끝날때마다 시행
         # 이거는 runs/val/exp#에 저장되는것 같다.
         if plots and batch_i < 3:
             plot_images(im, targets, paths, save_dir / f"val_batch{batch_i}_labels.jpg", names)  # labels 이미지 저장
-            plot_images(im, output_to_target(preds), paths, save_dir / f"val_batch{batch_i}_pred.jpg", names)  # pred 이미지 저장
+            plot_images(
+                im, output_to_target(preds), paths, save_dir / f"val_batch{batch_i}_pred.jpg", names
+            )  # pred 이미지 저장
 
-        callbacks.run("on_val_batch_end", batch_i, im, targets, paths, shapes, preds) #배치 끝났다
+        callbacks.run("on_val_batch_end", batch_i, im, targets, paths, shapes, preds)  # 배치 끝났다
     # Compute metrics
     stats = [torch.cat(x, 0).cpu().numpy() for x in zip(*stats)]  # to numpy
     if len(stats) and stats[0].any():
@@ -614,7 +665,9 @@ def run(#train에서 epoch 끝날때마다 시행
     t = tuple(x.t / seen * 1e3 for x in dt)  # speeds per image
     if not training:
         shape = (batch_size, 3, imgsz, imgsz)
-        LOGGER.info(f"Speed: %.1fms pre-process, %.1fms inference, %.1fms NMS per image at shape {shape}" % t) #val.py돌릴때 끝날때 나오는 멘트 
+        LOGGER.info(
+            f"Speed: %.1fms pre-process, %.1fms inference, %.1fms NMS per image at shape {shape}" % t
+        )  # val.py돌릴때 끝날때 나오는 멘트
 
     # Plots
     if plots:
@@ -651,9 +704,9 @@ def run(#train에서 epoch 끝날때마다 시행
 
     # Return results
     model.float()  # for training
-    #downscaling_network.float() # 0225 추가
+    # downscaling_network.float() # 0225 추가
     dynamic_luminance_network.float()
-    if not training: #val.py에서 돌렸을때
+    if not training:  # val.py에서 돌렸을때
         s = f"\n{len(list(save_dir.glob('labels/*.txt')))} labels saved to {save_dir / 'labels'}" if save_txt else ""
         LOGGER.info(f"Results saved to {colorstr('bold', save_dir)}{s}")
     maps = np.zeros(nc) + map

@@ -39,6 +39,8 @@ if str(ROOT) not in sys.path:
     sys.path.append(str(ROOT))  # add ROOT to PATH
 # ROOT = ROOT.relative_to(Path.cwd())  # relative
 
+from val import run as val_det
+
 import export
 from models.experimental import attempt_load
 from models.yolo import SegmentationModel
@@ -46,7 +48,6 @@ from segment.val import run as val_seg
 from utils import notebook_init
 from utils.general import LOGGER, check_yaml, file_size, print_args
 from utils.torch_utils import select_device
-from val import run as val_det
 
 
 def run(

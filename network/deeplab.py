@@ -1,14 +1,15 @@
 import torch.nn as nn
+
 affine_par = True
 # from guided_filter_pytorch.guided_filter import GuidedFilter
-from network.guided_filter import GuidedFilter
 import torch.nn.functional as F
+
+from network.guided_filter import GuidedFilter
 
 
 def conv3x3(in_planes, out_planes, stride=1):
     "3x3 convolution with padding"
-    return nn.Conv2d(in_planes, out_planes, kernel_size=3, stride=stride,
-                     padding=1, bias=False)
+    return nn.Conv2d(in_planes, out_planes, kernel_size=3, stride=stride, padding=1, bias=False)
 
 
 class BasicBlock(nn.Module):
@@ -54,8 +55,15 @@ class Bottleneck(nn.Module):
             i.requires_grad = False
 
         padding = dilation
-        self.conv2 = nn.Conv2d(planes, planes, kernel_size=3, stride=1,  # change
-                               padding=padding, bias=False, dilation=dilation)
+        self.conv2 = nn.Conv2d(
+            planes,
+            planes,
+            kernel_size=3,
+            stride=1,  # change
+            padding=padding,
+            bias=False,
+            dilation=dilation,
+        )
         self.bn2 = nn.BatchNorm2d(planes, affine=affine_par)
         for i in self.bn2.parameters():
             i.requires_grad = False
@@ -96,7 +104,8 @@ class Classifier_Module(nn.Module):
         self.conv2d_list = nn.ModuleList()
         for dilation, padding in zip(dilation_series, padding_series):
             self.conv2d_list.append(
-                nn.Conv2d(inplanes, num_classes, kernel_size=3, stride=1, padding=padding, dilation=dilation, bias=True))
+                nn.Conv2d(inplanes, num_classes, kernel_size=3, stride=1, padding=padding, dilation=dilation, bias=True)
+            )
 
     def forward(self, x):
         out = self.conv2d_list[0](x)
@@ -109,8 +118,7 @@ class ResNetMulti(nn.Module):
     def __init__(self, block, layers, num_classes, dgf, dgf_r, dgf_eps):
         self.inplanes = 64
         super(ResNetMulti, self).__init__()
-        self.conv1 = nn.Conv2d(3, 64, kernel_size=7, stride=2, padding=3,
-                               bias=False)
+        self.conv1 = nn.Conv2d(3, 64, kernel_size=7, stride=2, padding=3, bias=False)
         self.bn1 = nn.BatchNorm2d(64, affine=affine_par)
         self.relu = nn.ReLU(inplace=True)
         self.maxpool = nn.MaxPool2d(kernel_size=3, stride=2, padding=1, ceil_mode=True)  # change
@@ -134,10 +142,10 @@ class ResNetMulti(nn.Module):
         downsample = None
         if stride != 1 or self.inplanes != planes * block.expansion or dilation == 2 or dilation == 4:
             downsample = nn.Sequential(
-                nn.Conv2d(self.inplanes, planes * block.expansion,
-                          kernel_size=1, stride=stride, bias=False),
-                nn.BatchNorm2d(planes * block.expansion, affine=affine_par))
-        for i in downsample._modules['1'].parameters():
+                nn.Conv2d(self.inplanes, planes * block.expansion, kernel_size=1, stride=stride, bias=False),
+                nn.BatchNorm2d(planes * block.expansion, affine=affine_par),
+            )
+        for i in downsample._modules["1"].parameters():
             i.requires_grad = False
         layers = []
         layers.append(block(self.inplanes, planes, stride, dilation=dilation, downsample=downsample))
@@ -169,7 +177,7 @@ class ResNetMulti(nn.Module):
             g = self.guided_map_relu1(self.guided_map_conv1(im))
             g = self.guided_map_conv2(g)
 
-            x2 = F.interpolate(x2, im.size()[2:], mode='bilinear', align_corners=True)
+            x2 = F.interpolate(x2, im.size()[2:], mode="bilinear", align_corners=True)
 
             x2 = self.guided_filter(g, x2)
 

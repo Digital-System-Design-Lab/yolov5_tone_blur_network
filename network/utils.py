@@ -1,9 +1,11 @@
+from collections import OrderedDict
+
 import torch
 import torch.nn as nn
-import numpy as np
 import torch.nn.functional as F
-from collections import OrderedDict
+
 from network.guided_filter import GuidedFilter
+
 
 class _SimpleSegmentationModel(nn.Module):
     def __init__(self, backbone, classifier, dgf=False, dgf_r=4, dgf_eps=1e-2):
@@ -17,7 +19,7 @@ class _SimpleSegmentationModel(nn.Module):
             self.guided_map_conv2 = nn.Conv2d(64, 19, 1)
 
             self.guided_filter = GuidedFilter(dgf_r, dgf_eps)
-        
+
     def forward(self, x):
         input_shape = x.shape[-2:]
         features = self.backbone(x)
@@ -26,7 +28,7 @@ class _SimpleSegmentationModel(nn.Module):
             g = self.guided_map_relu1(self.guided_map_conv1(x))
             g = self.guided_map_conv2(g)
 
-            x2 = F.interpolate(x2, x.size()[2:], mode='bilinear', align_corners=True)
+            x2 = F.interpolate(x2, x.size()[2:], mode="bilinear", align_corners=True)
 
             x2 = self.guided_filter(g, x2)
         # x = F.interpolate(x, size=input_shape, mode='bilinear', align_corners=False)
@@ -35,7 +37,7 @@ class _SimpleSegmentationModel(nn.Module):
 
 class IntermediateLayerGetter(nn.ModuleDict):
     """
-    Module wrapper that returns intermediate layers from a model
+    Module wrapper that returns intermediate layers from a model.
 
     It has a strong assumption that the modules have been registered
     into the model in the same order as they are used.
@@ -64,6 +66,7 @@ class IntermediateLayerGetter(nn.ModuleDict):
         >>>     [('feat1', torch.Size([1, 64, 56, 56])),
         >>>      ('feat2', torch.Size([1, 256, 14, 14]))]
     """
+
     def __init__(self, model, return_layers, hrnet_flag=False):
         if not set(return_layers).issubset([name for name, _ in model.named_children()]):
             raise ValueError("return_layers are not present in model")
@@ -86,21 +89,23 @@ class IntermediateLayerGetter(nn.ModuleDict):
     def forward(self, x):
         out = OrderedDict()
         for name, module in self.named_children():
-            if self.hrnet_flag and name.startswith('transition'): # if using hrnet, you need to take care of transition
-                if name == 'transition1': # in transition1, you need to split the module to two streams first
+            if self.hrnet_flag and name.startswith("transition"):  # if using hrnet, you need to take care of transition
+                if name == "transition1":  # in transition1, you need to split the module to two streams first
                     x = [trans(x) for trans in module]
-                else: # all other transition is just an extra one stream split
+                else:  # all other transition is just an extra one stream split
                     x.append(module(x[-1]))
-            else: # other models (ex:resnet,mobilenet) are convolutions in series.
+            else:  # other models (ex:resnet,mobilenet) are convolutions in series.
                 x = module(x)
 
             if name in self.return_layers:
                 out_name = self.return_layers[name]
-                if name == 'stage4' and self.hrnet_flag: # In HRNetV2, we upsample and concat all outputs streams together
+                if (
+                    name == "stage4" and self.hrnet_flag
+                ):  # In HRNetV2, we upsample and concat all outputs streams together
                     output_h, output_w = x[0].size(2), x[0].size(3)  # Upsample to size of highest resolution stream
-                    x1 = F.interpolate(x[1], size=(output_h, output_w), mode='bilinear', align_corners=False)
-                    x2 = F.interpolate(x[2], size=(output_h, output_w), mode='bilinear', align_corners=False)
-                    x3 = F.interpolate(x[3], size=(output_h, output_w), mode='bilinear', align_corners=False)
+                    x1 = F.interpolate(x[1], size=(output_h, output_w), mode="bilinear", align_corners=False)
+                    x2 = F.interpolate(x[2], size=(output_h, output_w), mode="bilinear", align_corners=False)
+                    x3 = F.interpolate(x[3], size=(output_h, output_w), mode="bilinear", align_corners=False)
                     x = torch.cat([x[0], x1, x2, x3], dim=1)
                     out[out_name] = x
                 else:

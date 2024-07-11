@@ -1,13 +1,14 @@
-from network.pspnet import PSPNet
 from network.deeplab import Deeplab
-from network.refinenet import RefineNet
-from network.modeling import deeplabv3_resnet101, deeplabv3plus_resnet101
-from network.relighting import LightNet, L_TV, L_exp_z, SSIM
-from network.discriminator import FCDiscriminator,Discriminator
+from network.discriminator import Discriminator, FCDiscriminator
 from network.loss import StaticLoss
 from network.loss_dy import DynamicLoss
-from .modeling import *
+from network.modeling import deeplabv3_resnet101, deeplabv3plus_resnet101
+from network.pspnet import PSPNet
+from network.refinenet import RefineNet
+from network.relighting import L_TV, SSIM, L_exp_z, LightNet
+
 from ._deeplab import convert_to_separable_conv
+from .modeling import *
 
 # from network.guided_filter import FastGuidedFilter,GuidedFilter
 

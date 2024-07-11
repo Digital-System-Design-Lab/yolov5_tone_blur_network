@@ -371,17 +371,18 @@ def smart_hub_load(repo="ultralytics/yolov5", model="yolov5s", **kwargs):
     except Exception:
         return torch.hub.load(repo, model, force_reload=True, **kwargs)
 
+
 def smart_resume(ckpt, optimizer, dln_optimizer, ema=None, weights="yolov5s.pt", epochs=300, resume=True):
     # Resume training from a partially trained checkpoint
     best_fitness = 0.0
     start_epoch = ckpt["epoch"] + 1
     if ckpt["optimizer"] is not None:
         optimizer.load_state_dict(ckpt["optimizer"])  # optimizer
-        dln_optimizer.load_state_dict(ckpt["dln_optimizer"]) #0221 추가
+        dln_optimizer.load_state_dict(ckpt["dln_optimizer"])  # 0221 추가
         best_fitness = ckpt["best_fitness"]
     if ema and ckpt.get("ema"):
         ema.ema.load_state_dict(ckpt["ema"].float().state_dict())  # EMA
-        ema.dynamic_luminance_network.load_state_dict(ckpt["dynamic_luminance_network"]) #0221
+        ema.dynamic_luminance_network.load_state_dict(ckpt["dynamic_luminance_network"])  # 0221
         ema.updates = ckpt["updates"]
     if resume:
         assert start_epoch > 0, (
@@ -393,6 +394,8 @@ def smart_resume(ckpt, optimizer, dln_optimizer, ema=None, weights="yolov5s.pt",
         LOGGER.info(f"{weights} has been trained for {ckpt['epoch']} epochs. Fine-tuning for {epochs} more epochs.")
         epochs += ckpt["epoch"]  # finetune additional epochs
     return best_fitness, start_epoch, epochs
+
+
 class EarlyStopping:
     # YOLOv5 simple early stopper
     def __init__(self, patience=30):
@@ -447,7 +450,8 @@ class ModelEMA:
     def update_attr(self, model, include=(), exclude=("process_group", "reducer")):
         # Update EMA attributes
         copy_attr(self.ema, model, include, exclude)
-        
+
+
 # class ExtendedModelEMA(ModelEMA):#0220 syh edit (ModelEMA의 모든 기능 상속 + downscaling_network에 대한 EMA 관리 기능 추가)
 #     def __init__(self, model, downscaling_network, decay=0.9999, tau = 2000, updates=0):
 #         super().__init__(model, decay, tau, updates)
@@ -465,8 +469,11 @@ class ModelEMA:
 #                 v *= d
 #                 v += (1 - d) * msd[k].detach()
 
-class ExtendedModelEMA(ModelEMA):#0307 syh edit (ModelEMA의 모든 기능 상속 + downscaling_network에 대한 EMA 관리 기능 추가)
-    def __init__(self, model, dynamic_luminance_network, decay=0.9999, tau = 2000, updates=0):
+
+class ExtendedModelEMA(
+    ModelEMA
+):  # 0307 syh edit (ModelEMA의 모든 기능 상속 + downscaling_network에 대한 EMA 관리 기능 추가)
+    def __init__(self, model, dynamic_luminance_network, decay=0.9999, tau=2000, updates=0):
         super().__init__(model, decay, tau, updates)
         self.dynamic_luminance_network = deepcopy(dynamic_luminance_network).eval()  # FP32 EMA for downscaling_network
         for p in self.dynamic_luminance_network.parameters():

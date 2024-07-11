@@ -1,5 +1,6 @@
 # YOLOv5 ?? by Ultralytics, AGPL-3.0 license
 """Logging utils."""
+
 import json
 import os
 import warnings
@@ -84,7 +85,7 @@ class Loggers:
             "train/box_loss",
             "train/obj_loss",
             "train/cls_loss",  # train loss
-            "train/total_loss", # update
+            "train/total_loss",  # update
             "train/bpp_loss",
             "metrics/precision",
             "metrics/recall",
@@ -93,7 +94,7 @@ class Loggers:
             "val/box_loss",
             "val/obj_loss",
             "val/cls_loss",  # val loss
-            "val/bpp_loss",#
+            "val/bpp_loss",  #
             "x/lr0",
             "x/lr1",
             "x/lr2",
@@ -240,9 +241,9 @@ class Loggers:
         if self.comet_logger:
             self.comet_logger.on_val_end(nt, tp, fp, p, r, f1, ap, ap50, ap_class, confusion_matrix)
 
-    def on_fit_epoch_end(self, vals, epoch, best_fitness, fi): # val에도 bpp_loss 뜰 수있게
+    def on_fit_epoch_end(self, vals, epoch, best_fitness, fi):  # val에도 bpp_loss 뜰 수있게
         # Callback runs at the end of each fit (train+val) epoch
-        x = dict(zip(self.keys, vals)) #keys와 vals
+        x = dict(zip(self.keys, vals))  # keys와 vals
         if self.csv:
             file = self.save_dir / "results.csv"
             n = len(x) + 1  # number of cols
@@ -288,7 +289,7 @@ class Loggers:
                 self.clearml.task.update_output_model(
                     model_path=str(last), model_name="Latest Model", auto_delete_file=False
                 )
-                
+
         if self.comet_logger:
             self.comet_logger.on_model_save(last, epoch, final_epoch, best_fitness, fi)
 

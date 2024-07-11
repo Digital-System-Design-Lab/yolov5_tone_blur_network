@@ -371,18 +371,18 @@ class ComputeLoss:
         self.anchors = m.anchors
         self.device = device
 
-    def __call__(self, p, targets, downscaling_factor = None):  # predictions, targets // downscaling_factor도 추가 0222
+    def __call__(self, p, targets, downscaling_factor=None):  # predictions, targets // downscaling_factor도 추가 0222
         lcls = torch.zeros(1, device=self.device)  # class loss
         lbox = torch.zeros(1, device=self.device)  # box loss
         lobj = torch.zeros(1, device=self.device)  # object loss
         tcls, tbox, indices, anchors = self.build_targets(p, targets)  # targets
-        #분산 최대화 항 추가
+        # 분산 최대화 항 추가
         # lambda_var = 5 # 가중치, 실험적으로 조정 필요
         # downscaling_factor_variance = torch.var(downscaling_factor)#0302 추가
         # print(downscaling_factor_variance)
         # variance_loss = -lambda_var * downscaling_factor_variance  # 분산이 클수록 손실 감소
         # downscaling_weight = downscaling_factor.clamp(min=1.0)  # 다운스케일링 팩터의 최솟값을 1로 제한
-        #downscaling_weight = downscaling_factor.mean() / 4   # 배치 내에서의 평균 가중치를 사용 [0.25,1]로 고정 
+        # downscaling_weight = downscaling_factor.mean() / 4   # 배치 내에서의 평균 가중치를 사용 [0.25,1]로 고정
 
         # Losses
         for i, pi in enumerate(p):  # layer index, layer predictions
@@ -427,9 +427,8 @@ class ComputeLoss:
 
         if self.autobalance:
             self.balance = [x / self.balance[self.ssi] for x in self.balance]
-        
 
-        #밑에는 원본
+        # 밑에는 원본
         lbox *= self.hyp["box"]
         lobj *= self.hyp["obj"]
         lcls *= self.hyp["cls"]

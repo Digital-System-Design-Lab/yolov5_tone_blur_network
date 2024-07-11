@@ -44,7 +44,14 @@ if str(ROOT) not in sys.path:
     sys.path.append(str(ROOT))  # add ROOT to PATH
 ROOT = Path(os.path.relpath(ROOT, Path.cwd()))  # relative
 
+import io
+
+import torch.nn.functional as F
+import torch.optim as optim
+import torchvision.models as models
+import torchvision.transforms as transforms
 import val as validate  # for end-of-epoch mAP
+
 from models.experimental import attempt_load
 from models.yolo import Model
 from utils.autoanchor import check_anchors
@@ -85,8 +92,7 @@ from utils.metrics import fitness
 from utils.plots import plot_evolve
 from utils.torch_utils import (
     EarlyStopping,
-    ModelEMA,
-    ExtendedModelEMA,#0220
+    ExtendedModelEMA,  # 0220
     de_parallel,
     select_device,
     smart_DDP,
@@ -94,12 +100,7 @@ from utils.torch_utils import (
     smart_resume,
     torch_distributed_zero_first,
 )
-import torchvision.models as models
-import torch.nn.functional as F
-import torch.optim as optim
-from PIL import Image
-import io
-import torchvision.transforms as transforms
+
 LOCAL_RANK = int(os.getenv("LOCAL_RANK", -1))  # https://pytorch.org/docs/stable/elastic/run.html
 RANK = int(os.getenv("RANK", -1))
 WORLD_SIZE = int(os.getenv("WORLD_SIZE", 1))
@@ -124,10 +125,10 @@ def train(hyp, opt, device, callbacks):  # hyp is path/to/hyp.yaml or hyp dictio
     )
     callbacks.run("on_pretrain_routine_start")
 
-    # Directories 
-    w = save_dir / "weights"  # weights dir   runs/train/exp#/weights 
+    # Directories
+    w = save_dir / "weights"  # weights dir   runs/train/exp#/weights
     (w.parent if evolve else w).mkdir(parents=True, exist_ok=True)  # make dir
-    last, best = w / "last.pt", w / "best.pt" #weights 폴더에 2개 추가
+    last, best = w / "last.pt", w / "best.pt"  # weights 폴더에 2개 추가
 
     # Hyperparameters
     if isinstance(hyp, str):
@@ -149,7 +150,7 @@ def train(hyp, opt, device, callbacks):  # hyp is path/to/hyp.yaml or hyp dictio
             include_loggers.append("ndjson_console")
         if getattr(opt, "ndjson_file", False):
             include_loggers.append("ndjson_file")
-            
+
         loggers = Loggers(
             save_dir=save_dir,
             weights=weights,
@@ -178,11 +179,11 @@ def train(hyp, opt, device, callbacks):  # hyp is path/to/hyp.yaml or hyp dictio
     nc = 1 if single_cls else int(data_dict["nc"])  # number of classes
     names = {0: "item"} if single_cls and len(data_dict["names"]) != 1 else data_dict["names"]  # class names
     is_coco = isinstance(val_path, str) and val_path.endswith("coco/val2017.txt")  # COCO dataset
-    
+
     # 메모리에 이미지를 인코딩하는 함수
-    def encode_image_to_memory(image_tensor, format='JPEG', quality=95):
+    def encode_image_to_memory(image_tensor, format="JPEG", quality=95):
         # 텐서를 PIL 이미지로 변환
-        image_pil = transforms.ToPILImage()(image_tensor.squeeze(0).cpu()).convert('RGB')
+        image_pil = transforms.ToPILImage()(image_tensor.squeeze(0).cpu()).convert("RGB")
         # 메모리 스트림을 생성
         buffer = io.BytesIO()
         # 이미지를 메모리 스트림에 인코딩
@@ -190,7 +191,7 @@ def train(hyp, opt, device, callbacks):  # hyp is path/to/hyp.yaml or hyp dictio
         # 인코딩된 이미지의 바이트 크기를 반환
         return buffer.getbuffer().nbytes * 8
 
-    class DownscalingNetwork(nn.Module):#classifcation에서 regrssion으로 변경
+    class DownscalingNetwork(nn.Module):  # classifcation에서 regrssion으로 변경
         def __init__(self):
             super(DownscalingNetwork, self).__init__()
             self.resnet101 = models.resnet101(pretrained=True)
@@ -202,52 +203,54 @@ def train(hyp, opt, device, callbacks):  # hyp is path/to/hyp.yaml or hyp dictio
             self.extended_fc = nn.Sequential(
                 nn.Linear(2048, 1000),  # ResNet101의 마지막 레이어 출력 크기는 2048
                 nn.ReLU(),
-                nn.InstanceNorm1d(1000), #인스턴스 정규화 사용
+                nn.InstanceNorm1d(1000),  # 인스턴스 정규화 사용
                 nn.Dropout(0.5),
                 nn.Linear(1000, 256),
                 nn.ReLU(),
-                nn.InstanceNorm1d(256), #인스턴스 정규화 사용
+                nn.InstanceNorm1d(256),  # 인스턴스 정규화 사용
                 nn.Dropout(0.5),
-                nn.Linear(256,128),
+                nn.Linear(256, 128),
                 nn.ReLU(),
                 nn.Dropout(0.5),
                 nn.Linear(128, 1),
-                #nn.Sigmoid()#[0,1] 범위로 조정
-                nn.Tanh()#Tanh 활성화 함수 사용 [-1,1]
-        )
+                # nn.Sigmoid()#[0,1] 범위로 조정
+                nn.Tanh(),  # Tanh 활성화 함수 사용 [-1,1]
+            )
 
         def forward(self, x):
             x = self.resnet101(x)
             x = self.extended_fc(x)
-            #x = x *3.0 + 1.0 # [1.0 ~ 4.0] 범위로 스케일링 (sigmoid)
+            # x = x *3.0 + 1.0 # [1.0 ~ 4.0] 범위로 스케일링 (sigmoid)
             x = (x + 1) / 2 * 3 + 1
             return x
-        
+
     # Model
     check_suffix(weights, ".pt")  # check weights
     pretrained = weights.endswith(".pt")
-    if pretrained:#weight를 불러왔을때
+    if pretrained:  # weight를 불러왔을때
         with torch_distributed_zero_first(LOCAL_RANK):
             weights = attempt_download(weights)  # download if not found locally 없으면 다운로드
         ckpt = torch.load(weights, map_location="cpu")  # load checkpoint to CPU to avoid CUDA memory leak --weights
         model = Model(cfg or ckpt["model"].yaml, ch=3, nc=nc, anchors=hyp.get("anchors")).to(device)  # create
-        downscaling_network = DownscalingNetwork().to(device) # 0222 추가
+        downscaling_network = DownscalingNetwork().to(device)  # 0222 추가
         exclude = ["anchor"] if (cfg or hyp.get("anchors")) and not resume else []  # exclude keys
         csd = ckpt["model"].float().state_dict()  # checkpoint state_dict as FP32
         csd = intersect_dicts(csd, model.state_dict(), exclude=exclude)  # intersect
         model.load_state_dict(csd, strict=False)  # load
-        if 'downscaling_network' in ckpt: #ckpt(체크포인트) 안에 downscaling_network 상태가 있을때만 로드 없으면 로드x 
-            downscaling_network.load_state_dict(ckpt['downscaling_network'])
+        if "downscaling_network" in ckpt:  # ckpt(체크포인트) 안에 downscaling_network 상태가 있을때만 로드 없으면 로드x
+            downscaling_network.load_state_dict(ckpt["downscaling_network"])
             print("Loaded downscaling_network weight@@@@")
         LOGGER.info(f"Transferred {len(csd)}/{len(model.state_dict())} items from {weights}")  # report
     else:
         model = Model(cfg, ch=3, nc=nc, anchors=hyp.get("anchors")).to(device)  # create
-        downscaling_network = DownscalingNetwork().to(device)#0222 추가
+        downscaling_network = DownscalingNetwork().to(device)  # 0222 추가
     amp = check_amp(model)  # check AMP
-    
-    for param in downscaling_network.resnet101.parameters(): #fine-tuning(기존 사전 학습 레이어들의 가중치는 고정하고 새로 추가한 레이어들만 학습하도록)
-        param.requires_grad = False #무조건 넣어야 될 것 같은데?
-    for param in downscaling_network.extended_fc.parameters(): #extended_fc 학습되게 하기
+
+    for param in (
+        downscaling_network.resnet101.parameters()
+    ):  # fine-tuning(기존 사전 학습 레이어들의 가중치는 고정하고 새로 추가한 레이어들만 학습하도록)
+        param.requires_grad = False  # 무조건 넣어야 될 것 같은데?
+    for param in downscaling_network.extended_fc.parameters():  # extended_fc 학습되게 하기
         param.requires_grad = True
 
     # Freeze
@@ -261,27 +264,35 @@ def train(hyp, opt, device, callbacks):  # hyp is path/to/hyp.yaml or hyp dictio
 
     # Image size
     gs = max(int(model.stride.max()), 32)  # grid size (max stride)
-    #stride : 이미지 크기 감소 비율을 결정
-    #model.stride.max (모델이 한 번에 얼마나 많이 이미지를 다운샘플링 가는가?)
+    # stride : 이미지 크기 감소 비율을 결정
+    # model.stride.max (모델이 한 번에 얼마나 많이 이미지를 다운샘플링 가는가?)
     imgsz = check_img_size(opt.imgsz, gs, floor=gs * 2)  # verify imgsz is gs-multiple
-    #opt.imgsz : 사용자가 지정한 입력 이미지 크기 / gs : grid size, 
+    # opt.imgsz : 사용자가 지정한 입력 이미지 크기 / gs : grid size,
     # Batch size
-    if RANK == -1 and batch_size == -1:  # single-GPU only, estimate best batch size 단일 GPU 환경에서 최적의 배치 크기 추정
-        #RANK = -1 : 단일 gpu만 사용하는 경우
-        #BATCH_SIZE = -1 : 사용자가 배치 크기를 명시적으로 지정 X인 경우
-        batch_size = check_train_batch_size(model, imgsz, amp)#최적의 배치 크기 추정
-        loggers.on_params_update({"batch_size": batch_size})#추정된 배치 크기를 로깅 시스템에 업데이트
+    if (
+        RANK == -1 and batch_size == -1
+    ):  # single-GPU only, estimate best batch size 단일 GPU 환경에서 최적의 배치 크기 추정
+        # RANK = -1 : 단일 gpu만 사용하는 경우
+        # BATCH_SIZE = -1 : 사용자가 배치 크기를 명시적으로 지정 X인 경우
+        batch_size = check_train_batch_size(model, imgsz, amp)  # 최적의 배치 크기 추정
+        loggers.on_params_update({"batch_size": batch_size})  # 추정된 배치 크기를 로깅 시스템에 업데이트
 
     # Optimizer
     nbs = 64  # nominal batch size (이상적인 배치 크기)
-    accumulate = max(round(nbs / batch_size), 1)  # accumulate loss before optimizing // accumulate : 몇개의 배치를 처리한 후그래디언트를 업데이트 할지 결정하는 값
-    #실제배치크기(batch_size)가 작을수록 더 많은 배치의 손실을 축적
-    hyp["weight_decay"] *= batch_size * accumulate / nbs  # scale weight_decay (가중치 감소?) -> 과적합 방지를위해 손실함수에 추가하는 정규화
-    #실제 배치 크기가 목표 배치크기(nbs)보다 작으면 가중치 감소를 증가시켜 보정
+    accumulate = max(
+        round(nbs / batch_size), 1
+    )  # accumulate loss before optimizing // accumulate : 몇개의 배치를 처리한 후그래디언트를 업데이트 할지 결정하는 값
+    # 실제배치크기(batch_size)가 작을수록 더 많은 배치의 손실을 축적
+    hyp["weight_decay"] *= (
+        batch_size * accumulate / nbs
+    )  # scale weight_decay (가중치 감소?) -> 과적합 방지를위해 손실함수에 추가하는 정규화
+    # 실제 배치 크기가 목표 배치크기(nbs)보다 작으면 가중치 감소를 증가시켜 보정
     optimizer = smart_optimizer(model, opt.optimizer, hyp["lr0"], hyp["momentum"], hyp["weight_decay"])
-    #opt.optimizer : 사용자가 선택한 최적한 알고리즘
-    #optimizer: 모델의 가중치 업데이트
-    dfm_optimizer = optim.Adam(downscaling_network.parameters(), lr=0.001) #downscaling_network optimizer 선언 0222추가
+    # opt.optimizer : 사용자가 선택한 최적한 알고리즘
+    # optimizer: 모델의 가중치 업데이트
+    dfm_optimizer = optim.Adam(
+        downscaling_network.parameters(), lr=0.001
+    )  # downscaling_network optimizer 선언 0222추가
     # Scheduler
     if opt.cos_lr:
         lf = one_cycle(1, hyp["lrf"], epochs)  # cosine 1->hyp['lrf']
@@ -290,8 +301,8 @@ def train(hyp, opt, device, callbacks):  # hyp is path/to/hyp.yaml or hyp dictio
     scheduler = lr_scheduler.LambdaLR(optimizer, lr_lambda=lf)  # plot_lr_scheduler(optimizer, scheduler, epochs)
 
     # EMA
-    #ema = ModelEMA(model) if RANK in {-1, 0} else None
-    ema = ExtendedModelEMA(model,downscaling_network) if RANK in {-1, 0} else None #0220 수정
+    # ema = ModelEMA(model) if RANK in {-1, 0} else None
+    ema = ExtendedModelEMA(model, downscaling_network) if RANK in {-1, 0} else None  # 0220 수정
 
     # Resume
     best_fitness, start_epoch = 0.0, 0
@@ -338,10 +349,10 @@ def train(hyp, opt, device, callbacks):  # hyp is path/to/hyp.yaml or hyp dictio
 
     # Process 0
     if RANK in {-1, 0}:
-        val_loader = create_dataloader( #validation load
+        val_loader = create_dataloader(  # validation load
             val_path,
             imgsz,
-            1,#batch_size // WORLD_SIZE * 2,
+            1,  # batch_size // WORLD_SIZE * 2,
             gs,
             single_cls,
             hyp=hyp,
@@ -396,10 +407,10 @@ def train(hyp, opt, device, callbacks):  # hyp is path/to/hyp.yaml or hyp dictio
         f'Starting training for {epochs} epochs...'
     )
     for epoch in range(start_epoch, epochs):  # epoch ------------------------------------------------------------------
-        #epoch 시작?
-        callbacks.run("on_train_epoch_start") #utils/loggers/__init__.py
+        # epoch 시작?
+        callbacks.run("on_train_epoch_start")  # utils/loggers/__init__.py
         model.train()
-        downscaling_network.train() #syh edit dfm 훈련
+        downscaling_network.train()  # syh edit dfm 훈련
         # Update image weights (optional, single-GPU only) 안건드려도 될듯
         if opt.image_weights:
             cw = model.class_weights.cpu().numpy() * (1 - maps) ** 2 / nc  # class weights
@@ -411,8 +422,8 @@ def train(hyp, opt, device, callbacks):  # hyp is path/to/hyp.yaml or hyp dictio
         # dataset.mosaic_border = [b - imgsz, -b]  # height, width borders
 
         mloss = torch.zeros(3, device=device)  # mean losses #torch.zeros : 모든 요소가 0인 텐서를 생성
-        mtotal_loss = torch.zeros(1, device=device) #0217, downscalingNetwork의 total loss를 기록하기 위함
-        mbpp_loss = torch.zeros(1, device=device) #0217, bpp loss 평균 기록
+        mtotal_loss = torch.zeros(1, device=device)  # 0217, downscalingNetwork의 total loss를 기록하기 위함
+        mbpp_loss = torch.zeros(1, device=device)  # 0217, bpp loss 평균 기록
         if RANK != -1:
             train_loader.sampler.set_epoch(epoch)
         pbar = enumerate(train_loader)
@@ -421,25 +432,30 @@ def train(hyp, opt, device, callbacks):  # hyp is path/to/hyp.yaml or hyp dictio
         for name, param in downscaling_network.named_parameters():
             if "extended_fc" in name:
                 print(f"{name}: {param.data}")
-                
-        LOGGER.info(("\n" + "%11s" * 9) % ("Epoch", "GPU_mem", "box_loss", "obj_loss", "cls_loss", "total_loss","bpp_loss", "Instances", "Size"))#total_loss, bpp_loss 추가함
+
+        LOGGER.info(
+            ("\n" + "%11s" * 9)
+            % ("Epoch", "GPU_mem", "box_loss", "obj_loss", "cls_loss", "total_loss", "bpp_loss", "Instances", "Size")
+        )  # total_loss, bpp_loss 추가함
         if RANK in {-1, 0}:
             pbar = tqdm(pbar, total=nb, bar_format=TQDM_BAR_FORMAT)  # progress bar
         optimizer.zero_grad()
-        dfm_optimizer.zero_grad() #syh_edit
+        dfm_optimizer.zero_grad()  # syh_edit
         for i, (imgs, targets, paths, _) in pbar:  # batch -------------------------------------------------------------
             callbacks.run("on_train_batch_start")
             ni = i + nb * epoch  # number integrated batches (since train start)
-            imgs = imgs.to(device, non_blocking=True).float() / 255  
+            imgs = imgs.to(device, non_blocking=True).float() / 255
             # uint8 to float32, 0-255 to 0.0-1.0 텐서 데이터 타입을 float32로 변환(부동소수점 연산을 하기 위해)
             # 픽셀값을 0 ~ 1.0 범위로 정규화(성능과 학습 속도를 향상시키기 위해)
-            #print('imgs size:',imgs.size()) #이거 하니까 (B,C,H,W) = (B,3,imgsz, imgsz)으로 고정되네
+            # print('imgs size:',imgs.size()) #이거 하니까 (B,C,H,W) = (B,3,imgsz, imgsz)으로 고정되네
             # Warmup (학습률을 점진적으로 증가시키는 기법, 초기에 학습률이 너무 높아 발생하는 발산 방지)
-            #즉, 초기에 낮은 학습률로 시작해서, 에포크동안 점차 원하는 학습률까지 증가
-            if ni <= nw: #ni : 현재까지 처리한 배치 총 수 , nw: Warmup을 적용할 배치수(Warmup 기간동안에만 학습률 조절)
+            # 즉, 초기에 낮은 학습률로 시작해서, 에포크동안 점차 원하는 학습률까지 증가
+            if (
+                ni <= nw
+            ):  # ni : 현재까지 처리한 배치 총 수 , nw: Warmup을 적용할 배치수(Warmup 기간동안에만 학습률 조절)
                 xi = [0, nw]  # x interp
                 # compute_loss.gr = np.interp(ni, xi, [0.0, 1.0])  # iou loss ratio (obj_loss = 1.0 or iou)
-                accumulate = max(1, np.interp(ni, xi, [1, nbs / batch_size]).round())#np.interp: 선형 보간 함수
+                accumulate = max(1, np.interp(ni, xi, [1, nbs / batch_size]).round())  # np.interp: 선형 보간 함수
                 for j, x in enumerate(optimizer.param_groups):
                     # bias lr falls from 0.1 to lr0, all other lrs rise from 0.0 to lr0
                     x["lr"] = np.interp(ni, xi, [hyp["warmup_bias_lr"] if j == 0 else 0.0, x["initial_lr"] * lf(epoch)])
@@ -455,50 +471,64 @@ def train(hyp, opt, device, callbacks):  # hyp is path/to/hyp.yaml or hyp dictio
                     imgs = nn.functional.interpolate(imgs, size=ns, mode="bilinear", align_corners=False)
 
             # Forward
-            with torch.cuda.amp.autocast(amp): #amp: 자동 혼합 정밀도 -> 그냥 계산 효율성, 성능 향상시키는 것 인듯..
-                #pred = model(imgs)  # forward (원래 코드)
-                before_dfm_imgs = F.interpolate(imgs, size=(224, 224), mode='bilinear', align_corners=False)
-                #downscaling_factors = downscaling_network(before_dfm_imgs) #downscaling_network에 넣는 이미지 사이즈는 224, 224가 되게
-                downscaling_factor = downscaling_network(before_dfm_imgs)#.view(-1)#0216 edit
-                print('\ndownscaling_factor = ',downscaling_factor)
+            with torch.cuda.amp.autocast(amp):  # amp: 자동 혼합 정밀도 -> 그냥 계산 효율성, 성능 향상시키는 것 인듯..
+                # pred = model(imgs)  # forward (원래 코드)
+                before_dfm_imgs = F.interpolate(imgs, size=(224, 224), mode="bilinear", align_corners=False)
+                # downscaling_factors = downscaling_network(before_dfm_imgs) #downscaling_network에 넣는 이미지 사이즈는 224, 224가 되게
+                downscaling_factor = downscaling_network(before_dfm_imgs)  # .view(-1)#0216 edit
+                print("\ndownscaling_factor = ", downscaling_factor)
                 bpp_loss = 1 / downscaling_factor
                 # new_height = imgs.shape[2] / downscaling_factors
                 # new_width = imgs.shape[3] / downscaling_factors
                 # print(f"new_height : {new_height}, new_width = {new_width}")
                 # imgs는 원본이미지
-                resized_imgs = F.interpolate(imgs, scale_factor = 1 / downscaling_factor, mode='bilinear', recompute_scale_factor = True, align_corners=False)
-                print('downscaled_imgs size ',resized_imgs.size())
-                total_pixels = imgs.shape[2] * imgs.shape[3] #original image의 total pixel(H x W)
-                resized_imgs2 = F.interpolate(resized_imgs, size=(640, 640), mode='bilinear', align_corners=False) # YOLOv5에 640x640 크기로 들어감
-                pred = model(resized_imgs2) #syh_edit 줄였다 늘렸다 한것을 YOLOv5에 넣음
-                loss, loss_items = compute_loss(pred, targets.to(device), downscaling_factor)  # loss scaled by batch_size // pred결과와 target 결과를 기반으로 loss 계산
-                reconstruction_loss = F.mse_loss(resized_imgs2, imgs) #0222 추가
-                print('reconstruction_loss : ',reconstruction_loss)
-                compressed_size_bits = encode_image_to_memory(resized_imgs, format='JPEG', quality = 20) # downscaled img을 compression 한 후에 bit수(즉, file size)
-                #reference 논문 QP = 20으로 설정
-                #bpp_loss = compressed_size_bits / total_pixels #bpp loss 값 적어두기
-                print('bpp_loss : ',bpp_loss)
-                #loss_items는 box loss, objectness loss, classification loss를 보여줌.
-                #loss는 (lbox + lobj + lcls) * bs(batch size)
-                #print('loss_items: ',loss_items.sum())
+                resized_imgs = F.interpolate(
+                    imgs,
+                    scale_factor=1 / downscaling_factor,
+                    mode="bilinear",
+                    recompute_scale_factor=True,
+                    align_corners=False,
+                )
+                print("downscaled_imgs size ", resized_imgs.size())
+                total_pixels = imgs.shape[2] * imgs.shape[3]  # original image의 total pixel(H x W)
+                resized_imgs2 = F.interpolate(
+                    resized_imgs, size=(640, 640), mode="bilinear", align_corners=False
+                )  # YOLOv5에 640x640 크기로 들어감
+                pred = model(resized_imgs2)  # syh_edit 줄였다 늘렸다 한것을 YOLOv5에 넣음
+                loss, loss_items = compute_loss(
+                    pred, targets.to(device), downscaling_factor
+                )  # loss scaled by batch_size // pred결과와 target 결과를 기반으로 loss 계산
+                reconstruction_loss = F.mse_loss(resized_imgs2, imgs)  # 0222 추가
+                print("reconstruction_loss : ", reconstruction_loss)
+                compressed_size_bits = encode_image_to_memory(
+                    resized_imgs, format="JPEG", quality=20
+                )  # downscaled img을 compression 한 후에 bit수(즉, file size)
+                # reference 논문 QP = 20으로 설정
+                # bpp_loss = compressed_size_bits / total_pixels #bpp loss 값 적어두기
+                print("bpp_loss : ", bpp_loss)
+                # loss_items는 box loss, objectness loss, classification loss를 보여줌.
+                # loss는 (lbox + lobj + lcls) * bs(batch size)
+                # print('loss_items: ',loss_items.sum())
                 # dfm_loss = loss_items.sum()
-                if RANK != -1: 
+                if RANK != -1:
                     loss *= WORLD_SIZE  # gradient averaged between devices in DDP mode
-                    #WORLD_SIZE: 전체 gpu수
-                if opt.quad:#quad가 활성화 되어있으면 손실을 4배로 증가
+                    # WORLD_SIZE: 전체 gpu수
+                if opt.quad:  # quad가 활성화 되어있으면 손실을 4배로 증가
                     loss *= 4.0
-                #downscalingNetwork 역전파
-                print('yolov5 loss : ',loss)
-                #total_loss = 100 * reconstruction_loss * bpp_loss + 8 * loss #dfm의 loss 함수
-                #total_loss = 100 * reconstruction_loss + loss
-                total_loss =  40 * bpp_loss + loss
-                print('total_loss : ',total_loss)  
+                # downscalingNetwork 역전파
+                print("yolov5 loss : ", loss)
+                # total_loss = 100 * reconstruction_loss * bpp_loss + 8 * loss #dfm의 loss 함수
+                # total_loss = 100 * reconstruction_loss + loss
+                total_loss = 40 * bpp_loss + loss
+                print("total_loss : ", total_loss)
                 # dfm_optimizer.zero_grad()#dfm의 optimizer 초기화
                 # loss.backward(retain_graph=True)#backward(역전파)를 두번 호출하면 처음으로 호출되는 backward에 retain_graph=True 해놓기
                 # #retain_graph를 사용하는 이유 : dfm 역전파 후에도 계산 그래프를 유지하여 yolov5 모델에 대한 역전파를 수행할 수 있도록 하기 위해서
                 # dfm_optimizer.step()# yolov5/dfm 독립적으로 업데이트
-                
-            total_loss.backward(retain_graph=True)#retain_graph=True)#backward(역전파)를 두번 호출하면 처음으로 호출되는 backward에 retain_graph=True 해놓기
+
+            total_loss.backward(
+                retain_graph=True
+            )  # retain_graph=True)#backward(역전파)를 두번 호출하면 처음으로 호출되는 backward에 retain_graph=True 해놓기
             # dfm_optimizer.step() #update
             for name, param in downscaling_network.named_parameters():
                 if "extended_fc" in name and param.grad is not None:
@@ -506,34 +536,41 @@ def train(hyp, opt, device, callbacks):  # hyp is path/to/hyp.yaml or hyp dictio
                 elif "extended_fc" in name:
                     print(f"{name} has no grad")
 
-            #retain_graph를 사용하는 이유 : dfm 역전파 후에도 계산 그래프를 유지하여 yolov5 모델에 대한 역전파를 수행할 수 있도록 하기 위해서
+            # retain_graph를 사용하는 이유 : dfm 역전파 후에도 계산 그래프를 유지하여 yolov5 모델에 대한 역전파를 수행할 수 있도록 하기 위해서
             # Backward
-            scaler.scale(loss).backward()#yolov5 모델의 파라미터 업데이트
-
+            scaler.scale(loss).backward()  # yolov5 모델의 파라미터 업데이트
 
             # Optimize - https://pytorch.org/docs/master/notes/amp_examples.html
             if ni - last_opt_step >= accumulate:
                 scaler.unscale_(optimizer)  # unscale gradients
                 torch.nn.utils.clip_grad_norm_(model.parameters(), max_norm=10.0)  # clip gradients
-                dfm_optimizer.step()# yolov5/dfm 독립적으로 업데이트 syh edit
-                dfm_optimizer.zero_grad() #syh_edit
+                dfm_optimizer.step()  # yolov5/dfm 독립적으로 업데이트 syh edit
+                dfm_optimizer.zero_grad()  # syh_edit
                 scaler.step(optimizer)  # optimizer.step
                 scaler.update()
                 optimizer.zero_grad()
                 if ema:
-                    #ema.update(model)
+                    # ema.update(model)
                     ema.update(model, downscaling_network)
                 last_opt_step = ni
 
             # Log
             if RANK in {-1, 0}:
                 mloss = (mloss * i + loss_items) / (i + 1)  # update mean losses
-                mtotal_loss = (mtotal_loss * i + total_loss) / (i + 1) # total_loss 평균 업데이트
-                mbpp_loss = (mbpp_loss * i + bpp_loss) / (i + 1) # update bpp_loss 평균 업데이트
+                mtotal_loss = (mtotal_loss * i + total_loss) / (i + 1)  # total_loss 평균 업데이트
+                mbpp_loss = (mbpp_loss * i + bpp_loss) / (i + 1)  # update bpp_loss 평균 업데이트
                 mem = f"{torch.cuda.memory_reserved() / 1E9 if torch.cuda.is_available() else 0:.3g}G"  # (GB)
                 pbar.set_description(
                     ("%11s" * 2 + "%11.4g" * 7)
-                    % (f"{epoch}/{epochs - 1}", mem, *mloss, mtotal_loss.item(), mbpp_loss.item(),targets.shape[0], imgs.shape[-1])#mbpp, mtotal_loss 추가
+                    % (
+                        f"{epoch}/{epochs - 1}",
+                        mem,
+                        *mloss,
+                        mtotal_loss.item(),
+                        mbpp_loss.item(),
+                        targets.shape[0],
+                        imgs.shape[-1],
+                    )  # mbpp, mtotal_loss 추가
                 )
                 callbacks.run("on_train_batch_end", model, ni, imgs, targets, paths, list(mloss))
                 if callbacks.stop_training:
@@ -550,29 +587,33 @@ def train(hyp, opt, device, callbacks):  # hyp is path/to/hyp.yaml or hyp dictio
             ema.update_attr(model, include=["yaml", "nc", "hyp", "names", "stride", "class_weights"])
             final_epoch = (epoch + 1 == epochs) or stopper.possible_stop
             if not noval or final_epoch:  # Calculate mAP
-                results, maps, _ = validate.run( #검증 데이터셋에 대해 모델 성능 평가 (epoch 1회 끝나고 시행)
+                results, maps, _ = validate.run(  # 검증 데이터셋에 대해 모델 성능 평가 (epoch 1회 끝나고 시행)
                     data_dict,
-                    batch_size=1,#original : batch_size // WORLD_SIZE * 2
+                    batch_size=1,  # original : batch_size // WORLD_SIZE * 2
                     imgsz=imgsz,
                     half=amp,
-                    #model=ema.ema,
-                    model = ema.ema,
-                    #downscaling_network = ema.downscaling_network,
-                    downscaling_network = downscaling_network, #0224 수정
+                    # model=ema.ema,
+                    model=ema.ema,
+                    # downscaling_network = ema.downscaling_network,
+                    downscaling_network=downscaling_network,  # 0224 수정
                     single_cls=single_cls,
                     dataloader=val_loader,
                     save_dir=save_dir,
                     plots=False,
                     callbacks=callbacks,
-                    compute_loss=compute_loss
+                    compute_loss=compute_loss,
                 )
 
             # Update best mAP // mAP가 가장 높은것을 best.pt로 만듦.
             fi = fitness(np.array(results).reshape(1, -1))  # weighted combination of [P, R, mAP@.5, mAP@.5-.95]
             stop = stopper(epoch=epoch, fitness=fi)  # early stop check
-            if fi > best_fitness:#현재 epoch의 mAP값이 이전에 기록된 최고 mAP보다 높으면 현재 모델의 상태를 best.pt로 저장
+            if (
+                fi > best_fitness
+            ):  # 현재 epoch의 mAP값이 이전에 기록된 최고 mAP보다 높으면 현재 모델의 상태를 best.pt로 저장
                 best_fitness = fi
-            log_vals = list(mloss) + [mtotal_loss.item()] +[mbpp_loss.item()] + list(results) + lr #result.csv에 저장 // mtotal_loss, mbpp_loss 추가
+            log_vals = (
+                list(mloss) + [mtotal_loss.item()] + [mbpp_loss.item()] + list(results) + lr
+            )  # result.csv에 저장 // mtotal_loss, mbpp_loss 추가
             callbacks.run("on_fit_epoch_end", log_vals, epoch, best_fitness, fi)
             # 에폭 종료 후 가중치 로깅
             print("Extended_FC 가중치 (에폭 종료 후):")
@@ -581,18 +622,20 @@ def train(hyp, opt, device, callbacks):  # hyp is path/to/hyp.yaml or hyp dictio
                     print(f"{name}: {param.data}")
             # Save model
             if (not nosave) or (final_epoch and not evolve):  # if save
-                ckpt = { #checkpoint인듯
+                ckpt = {  # checkpoint인듯
                     "epoch": epoch,
                     "best_fitness": best_fitness,
                     "model": deepcopy(de_parallel(model)).half(),
                     "ema": deepcopy(ema.ema).half(),
                     "updates": ema.updates,
                     "optimizer": optimizer.state_dict(),
-                    "dfm_optimizer" : dfm_optimizer.state_dict(),
+                    "dfm_optimizer": dfm_optimizer.state_dict(),
                     "opt": vars(opt),
                     "git": GIT_INFO,  # {remote, branch, commit} if a git repo
                     "date": datetime.now().isoformat(),
-                    "downscaling_network": deepcopy(downscaling_network.state_dict()),  # Save downscaling_network state syh edit 저장해야함
+                    "downscaling_network": deepcopy(
+                        downscaling_network.state_dict()
+                    ),  # Save downscaling_network state syh edit 저장해야함
                 }
 
                 # Save last, best and delete
@@ -620,9 +663,9 @@ def train(hyp, opt, device, callbacks):  # hyp is path/to/hyp.yaml or hyp dictio
         for f in last, best:
             if f.exists():
                 strip_optimizer(f)  # strip optimizers
-                if f is best:# f -> best.pt의 경로
+                if f is best:  # f -> best.pt의 경로
                     LOGGER.info(f"\nValidating {f}...")
-                    results, _, _ = validate.run( #train이 끝나고 나서도 validation 시행
+                    results, _, _ = validate.run(  # train이 끝나고 나서도 validation 시행
                         data_dict,
                         batch_size=batch_size // WORLD_SIZE * 2,
                         imgsz=imgsz,
@@ -636,10 +679,16 @@ def train(hyp, opt, device, callbacks):  # hyp is path/to/hyp.yaml or hyp dictio
                         plots=plots,
                         callbacks=callbacks,
                         compute_loss=compute_loss,
-                        downscaling_network_weights = f
+                        downscaling_network_weights=f,
                     )  # val best model with plots
                     if is_coco:
-                        callbacks.run("on_fit_epoch_end", list(mloss) + list(results)  + [mtotal_loss.item()] + [mbpp_loss.item()] + lr, epoch, best_fitness, fi)
+                        callbacks.run(
+                            "on_fit_epoch_end",
+                            list(mloss) + list(results) + [mtotal_loss.item()] + [mbpp_loss.item()] + lr,
+                            epoch,
+                            best_fitness,
+                            fi,
+                        )
 
         callbacks.run("on_train_end", last, best, epoch, results)
 
@@ -890,7 +939,7 @@ def main(opt, callbacks=Callbacks()):
                 results = train(hyp.copy(), opt, device, callbacks)
                 callbacks = Callbacks()
                 # Write mutation results
-                keys = ( #result.png에 적히는 key들?
+                keys = (  # result.png에 적히는 key들?
                     "metrics/precision",
                     "metrics/recall",
                     "metrics/mAP_0.5",
