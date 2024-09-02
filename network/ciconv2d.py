@@ -1,7 +1,6 @@
 #!/usr/bin/env python3
-# -*- coding: utf-8 -*-
 """
-Created on Tue Jan 7 13:57:50 2020 by Attila Lengyel - attila@lengyel.nl
+Created on Tue Jan 7 13:57:50 2020 by Attila Lengyel - attila@lengyel.nl.
 
 Parameters:
 - k : truncate filter after k*sigma, defines filter size (default: 3)
@@ -113,7 +112,7 @@ inv_switcher = {"E": E_inv, "W": W_inv, "C": C_inv, "N": N_inv, "H": H_inv}
 
 class CIConv2d(nn.Module):
     def __init__(self, invariant, k=3):
-        super(CIConv2d, self).__init__()
+        super().__init__()
         assert invariant in ["E", "H", "N", "W", "C"], "invalid invariant"
         self.inv_function = inv_switcher[invariant]
 
@@ -139,7 +138,7 @@ class CIConv2d(nn.Module):
         # print('****scale.shape', self.scale.shape)
         # Measure E, El, Ell by Gaussian color model
         in_shape = batch.shape  # bchw
-        batch = batch.view((in_shape[:2] + (-1,)))  # flatten image
+        batch = batch.view(in_shape[:2] + (-1,))  # flatten image
         batch = torch.matmul(self.gcm, batch)  # estimate E,El,Ell
         batch = batch.view((in_shape[0],) + (3,) + in_shape[2:])  # reshape to original image size
         E, El, Ell = torch.split(batch, 1, dim=1)

@@ -969,7 +969,6 @@ def non_max_suppression(
     Returns:
          list of detections, on (n,6) tensor per image [xyxy, conf, cls]
     """
-
     # Checks
     assert 0 <= conf_thres <= 1, f"Invalid Confidence threshold {conf_thres}, valid values are between 0.0 and 1.0"
     assert 0 <= iou_thres <= 1, f"Invalid IoU {iou_thres}, valid values are between 0.0 and 1.0"

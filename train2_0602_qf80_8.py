@@ -169,7 +169,7 @@ def gaussian_blur(image, kernel_size, sigma):
 
 class DC_Predictor(nn.Module):  # DC 값은 1개(0,0 point)
     def __init__(self):
-        super(DC_Predictor, self).__init__()
+        super().__init__()
         self.fc1 = nn.Linear(1, 16)
         self.fc2 = nn.Linear(16, 16)
         self.fc3 = nn.Linear(16, 16)
@@ -186,7 +186,7 @@ class DC_Predictor(nn.Module):  # DC 값은 1개(0,0 point)
 
 class AC_Predictor(nn.Module):  # AC 값은 63개 (0,0 제외) 8x8 block 기준
     def __init__(self):
-        super(AC_Predictor, self).__init__()
+        super().__init__()
         self.lstm = nn.LSTM(1, 16, bidirectional=True, batch_first=True)
         self.fc1 = nn.Linear(32 * 63, 16)
         self.fc2 = nn.Linear(16, 16)
@@ -206,7 +206,7 @@ class AC_Predictor(nn.Module):  # AC 값은 63개 (0,0 제외) 8x8 block 기준
 
 class Model_bpp_estimator(nn.Module):  # bpp 추정
     def __init__(self):
-        super(Model_bpp_estimator, self).__init__()
+        super().__init__()
         self.dc_predictor = DC_Predictor()
         self.ac_predictor = AC_Predictor()
 
@@ -219,7 +219,7 @@ class Model_bpp_estimator(nn.Module):  # bpp 추정
 
 class DynamicLuminanceWeightNetwork(nn.Module):
     def __init__(self):
-        super(DynamicLuminanceWeightNetwork, self).__init__()
+        super().__init__()
         # Upsample 층 추가 (입력 이미지를 224x224로 조정)
         self.upsample = nn.Upsample(size=(224, 224), mode="bilinear", align_corners=False)
 
@@ -279,7 +279,7 @@ class DynamicLuminanceWeightNetwork(nn.Module):
 
 class ReinhardToneMapping(nn.Module):  # HDR to LDR
     def __init__(self, white_point=1.0):
-        super(ReinhardToneMapping, self).__init__()
+        super().__init__()
         self.white_point = white_point
 
     def forward(self, hdr_image, predicted_weights):
@@ -471,7 +471,8 @@ def train(hyp, opt, device, callbacks):  # hyp is path/to/hyp.yaml or hyp dictio
     if opt.cos_lr:
         lf = one_cycle(1, hyp["lrf"], epochs)  # cosine 1->hyp['lrf']
     else:
-        lf = lambda x: (1 - x / epochs) * (1.0 - hyp["lrf"]) + hyp["lrf"]  # linear
+        def lf(x):
+            return (1 - x / epochs) * (1.0 - hyp["lrf"]) + hyp["lrf"]  # linear
     scheduler = lr_scheduler.LambdaLR(optimizer, lr_lambda=lf)  # plot_lr_scheduler(optimizer, scheduler, epochs)
     # dln_scheduler = optim.lr_scheduler.StepLR(dln_optimizer, step_size=10, gamma=0.5)#0229 추가
     dln_scheduler = optim.lr_scheduler.LambdaLR(dln_optimizer, lr_lambda=lambda epoch: 0.95**epoch)  # 0324 추가

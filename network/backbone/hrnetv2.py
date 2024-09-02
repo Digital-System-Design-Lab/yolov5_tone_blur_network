@@ -18,7 +18,7 @@ class Bottleneck(nn.Module):
     expansion = 4
 
     def __init__(self, inplanes, planes, stride=1, downsample=None):
-        super(Bottleneck, self).__init__()
+        super().__init__()
         self.conv1 = nn.Conv2d(inplanes, planes, kernel_size=1, bias=False)
         self.bn1 = nn.BatchNorm2d(planes)
         self.conv2 = nn.Conv2d(planes, planes, kernel_size=3, stride=stride, padding=1, bias=False)
@@ -53,7 +53,7 @@ class BasicBlock(nn.Module):
     expansion = 1
 
     def __init__(self, inplanes, planes, stride=1, downsample=None):
-        super(BasicBlock, self).__init__()
+        super().__init__()
         self.conv1 = nn.Conv2d(inplanes, planes, kernel_size=3, stride=stride, padding=1, bias=False)
         self.bn1 = nn.BatchNorm2d(planes)
         self.relu = nn.ReLU(inplace=True)
@@ -81,7 +81,7 @@ class BasicBlock(nn.Module):
 
 class StageModule(nn.Module):
     def __init__(self, stage, output_branches, c):
-        super(StageModule, self).__init__()
+        super().__init__()
 
         self.number_of_branches = stage  # number of branches is equivalent to the stage configuration.
         self.output_branches = output_branches
@@ -197,7 +197,7 @@ class StageModule(nn.Module):
 
 class HRNet(nn.Module):
     def __init__(self, c=48, num_blocks=[1, 4, 3], num_classes=1000):
-        super(HRNet, self).__init__()
+        super().__init__()
 
         # Stem:
         self.conv1 = nn.Conv2d(3, 64, kernel_size=3, stride=2, padding=1, bias=False)
