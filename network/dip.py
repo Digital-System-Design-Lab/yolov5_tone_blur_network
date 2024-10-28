@@ -1,5 +1,4 @@
 #! /usr/bin/env python
-# coding=utf-8
 import torch.nn as nn
 
 from configs.train_config import cfg
@@ -15,7 +14,7 @@ def conv_downsample(in_filters, out_filters, normalization=False):
 
 class CNN_PP(nn.Module):
     def __init__(self, in_channels=3):
-        super(CNN_PP, self).__init__()
+        super().__init__()
 
         self.model = nn.Sequential(
             nn.Upsample(size=(256, 256), mode="bilinear"),

@@ -47,7 +47,6 @@ def rotate_image(image, angle):
 
     The returned image will be large enough to hold the entire new image, with a black background
     """
-
     # Get the image size
     # No that's not an error - NumPy stores image matrices backwards
     image_size = (image.shape[1], image.shape[0])

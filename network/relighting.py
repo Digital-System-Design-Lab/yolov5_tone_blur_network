@@ -18,7 +18,7 @@ class ResnetBlock(nn.Module):
         and implement skip connections in <forward> function.
         Original Resnet paper: https://arxiv.org/pdf/1512.03385.pdf
         """
-        super(ResnetBlock, self).__init__()
+        super().__init__()
         self.conv_block = self.build_conv_block(dim, padding_type, norm_layer, use_dropout, use_bias)
 
     def build_conv_block(self, dim, padding_type, norm_layer, use_dropout, use_bias):
@@ -43,7 +43,7 @@ class ResnetBlock(nn.Module):
         elif padding_type == "zero":
             p = 1
         else:
-            raise NotImplementedError("padding [%s] is not implemented" % padding_type)
+            raise NotImplementedError(f"padding [{padding_type}] is not implemented")
 
         conv_block += [nn.Conv2d(dim, dim, kernel_size=3, padding=p, bias=use_bias), norm_layer(dim), nn.ReLU(True)]
         if use_dropout:
@@ -57,13 +57,13 @@ class ResnetBlock(nn.Module):
         elif padding_type == "zero":
             p = 1
         else:
-            raise NotImplementedError("padding [%s] is not implemented" % padding_type)
+            raise NotImplementedError(f"padding [{padding_type}] is not implemented")
         conv_block += [nn.Conv2d(dim, dim, kernel_size=3, padding=p, bias=use_bias), norm_layer(dim)]
 
         return nn.Sequential(*conv_block)
 
     def forward(self, x):
-        """Forward function (with skip connections)"""
+        """Forward function (with skip connections)."""
         out = x + self.conv_block(x)  # add skip connections
         return out
 
@@ -98,7 +98,7 @@ class ResnetGenerator(nn.Module):
             padding_type (str)  -- the name of padding layer in conv layers: reflect | replicate | zero
         """
         assert n_blocks >= 0
-        super(ResnetGenerator, self).__init__()
+        super().__init__()
         if type(norm_layer) == functools.partial:
             use_bias = norm_layer.func == nn.InstanceNorm2d
         else:
@@ -159,7 +159,7 @@ def LightNet():
 
 class L_exp_z(nn.Module):
     def __init__(self, patch_size):
-        super(L_exp_z, self).__init__()
+        super().__init__()
         self.pool = nn.AvgPool2d(patch_size)
 
     def forward(self, x, mean_val):
@@ -171,7 +171,7 @@ class L_exp_z(nn.Module):
 
 class L_TV(nn.Module):
     def __init__(self, TVLoss_weight=1):
-        super(L_TV, self).__init__()
+        super().__init__()
         self.TVLoss_weight = TVLoss_weight
 
     def forward(self, x):
@@ -189,7 +189,7 @@ class SSIM(nn.Module):
     """Layer to compute the SSIM loss between a pair of images."""
 
     def __init__(self):
-        super(SSIM, self).__init__()
+        super().__init__()
         self.mu_x_pool = nn.AvgPool2d(3, 1)
         self.mu_y_pool = nn.AvgPool2d(3, 1)
         self.sig_x_pool = nn.AvgPool2d(3, 1)

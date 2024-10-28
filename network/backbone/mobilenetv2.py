@@ -38,7 +38,7 @@ def _make_divisible(v, divisor, min_value=None):
 class ConvBNReLU(nn.Sequential):
     def __init__(self, in_planes, out_planes, kernel_size=3, stride=1, dilation=1, groups=1):
         # padding = (kernel_size - 1) // 2
-        super(ConvBNReLU, self).__init__(
+        super().__init__(
             nn.Conv2d(in_planes, out_planes, kernel_size, stride, 0, dilation=dilation, groups=groups, bias=False),
             nn.BatchNorm2d(out_planes),
             nn.ReLU6(inplace=True),
@@ -55,7 +55,7 @@ def fixed_padding(kernel_size, dilation):
 
 class InvertedResidual(nn.Module):
     def __init__(self, inp, oup, stride, dilation, expand_ratio):
-        super(InvertedResidual, self).__init__()
+        super().__init__()
         self.stride = stride
         assert stride in [1, 2]
 
@@ -102,7 +102,7 @@ class MobileNetV2(nn.Module):
             round_nearest (int): Round the number of channels in each layer to be a multiple of this number
             Set to 1 to turn off rounding
         """
-        super(MobileNetV2, self).__init__()
+        super().__init__()
         block = InvertedResidual
         input_channel = 32
         last_channel = 1280
@@ -123,9 +123,7 @@ class MobileNetV2(nn.Module):
         # only check the first element, assuming user knows t,c,n,s are required
         if len(inverted_residual_setting) == 0 or len(inverted_residual_setting[0]) != 4:
             raise ValueError(
-                "inverted_residual_setting should be non-empty " "or a 4-element list, got {}".format(
-                    inverted_residual_setting
-                )
+                "inverted_residual_setting should be non-empty " f"or a 4-element list, got {inverted_residual_setting}"
             )
 
         # building first layer

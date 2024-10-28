@@ -20,7 +20,7 @@ class AddCoords(nn.Module):
     def forward(self, input_tensor):
         """
         Args:
-            input_tensor: shape(batch, channel, x_dim, y_dim)
+            input_tensor: shape(batch, channel, x_dim, y_dim).
         """
         batch_size, _, x_dim, y_dim = input_tensor.size()
 
@@ -52,7 +52,7 @@ class Bottleneck(nn.Module):
     expansion = 4
 
     def __init__(self, inplanes, planes, stride=1, dilation=1, downsample=None, fist_dilation=1, multi_grid=1):
-        super(Bottleneck, self).__init__()
+        super().__init__()
         self.conv1 = nn.Conv2d(inplanes, planes, kernel_size=1, bias=False)
         self.bn1 = BatchNorm2d(planes)
         self.conv2 = nn.Conv2d(
@@ -98,11 +98,11 @@ class Bottleneck(nn.Module):
 class PSPModule(nn.Module):
     """
     Reference:
-        Zhao, Hengshuang, et al. *"Pyramid scene parsing network."*
+        Zhao, Hengshuang, et al. *"Pyramid scene parsing network."*.
     """
 
     def __init__(self, features, out_features=512, sizes=(1, 2, 3, 6)):
-        super(PSPModule, self).__init__()
+        super().__init__()
 
         self.stages = []
         self.stages = nn.ModuleList([self._make_stage(features, out_features, size) for size in sizes])
@@ -133,7 +133,7 @@ class PSPModule(nn.Module):
 class ResNet(nn.Module):
     def __init__(self, block, layers, num_classes, dgf, dgf_r, dgf_eps, with_r=False):
         self.inplanes = 128
-        super(ResNet, self).__init__()
+        super().__init__()
         self.conv1 = conv3x3(3, 64, stride=2)
         self.bn1 = BatchNorm2d(64)
         self.relu1 = nn.ReLU(inplace=False)
@@ -182,7 +182,8 @@ class ResNet(nn.Module):
             )
 
         layers = []
-        generate_multi_grid = lambda index, grids: grids[index % len(grids)] if isinstance(grids, tuple) else 1
+        def generate_multi_grid(index, grids):
+            return grids[index % len(grids)] if isinstance(grids, tuple) else 1
         layers.append(
             block(
                 self.inplanes,
