@@ -9,7 +9,7 @@ from network.guided_filter import GuidedFilter
 
 class _SimpleSegmentationModel(nn.Module):
     def __init__(self, backbone, classifier, dgf=False, dgf_r=4, dgf_eps=1e-2):
-        super(_SimpleSegmentationModel, self).__init__()
+        super().__init__()
         self.backbone = backbone
         self.classifier = classifier
         self.dgf = dgf
@@ -21,7 +21,7 @@ class _SimpleSegmentationModel(nn.Module):
             self.guided_filter = GuidedFilter(dgf_r, dgf_eps)
 
     def forward(self, x):
-        input_shape = x.shape[-2:]
+        x.shape[-2:]
         features = self.backbone(x)
         x2 = self.classifier(features)
         if self.dgf:
@@ -83,7 +83,7 @@ class IntermediateLayerGetter(nn.ModuleDict):
             if not return_layers:
                 break
 
-        super(IntermediateLayerGetter, self).__init__(layers)
+        super().__init__(layers)
         self.return_layers = orig_return_layers
 
     def forward(self, x):

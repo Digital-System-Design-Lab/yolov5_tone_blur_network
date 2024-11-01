@@ -39,22 +39,22 @@ from network.guided_filter import GuidedFilter
 
 
 def batchnorm(in_planes):
-    "batch norm 2d"
+    """Batch norm 2d."""
     return nn.BatchNorm2d(in_planes, affine=True, eps=1e-5, momentum=0.1)
 
 
 def conv3x3(in_planes, out_planes, stride=1, bias=False):
-    "3x3 convolution with padding"
+    """3x3 convolution with padding."""
     return nn.Conv2d(in_planes, out_planes, kernel_size=3, stride=stride, padding=1, bias=bias)
 
 
 def conv1x1(in_planes, out_planes, stride=1, bias=False):
-    "1x1 convolution"
+    """1x1 convolution."""
     return nn.Conv2d(in_planes, out_planes, kernel_size=1, stride=stride, padding=0, bias=bias)
 
 
 def convbnrelu(in_planes, out_planes, kernel_size, stride=1, groups=1, act=True):
-    "conv-batchnorm-relu"
+    """conv-batchnorm-relu."""
     if act:
         return nn.Sequential(
             nn.Conv2d(
@@ -86,7 +86,7 @@ def convbnrelu(in_planes, out_planes, kernel_size, stride=1, groups=1, act=True)
 
 class CRPBlock(nn.Module):
     def __init__(self, in_planes, out_planes, n_stages):
-        super(CRPBlock, self).__init__()
+        super().__init__()
         for i in range(n_stages):
             setattr(
                 self,
@@ -111,12 +111,12 @@ stages_suffixes = {0: "_conv", 1: "_conv_relu_varout_dimred"}
 
 class RCUBlock(nn.Module):
     def __init__(self, in_planes, out_planes, n_blocks, n_stages):
-        super(RCUBlock, self).__init__()
+        super().__init__()
         for i in range(n_blocks):
             for j in range(n_stages):
                 setattr(
                     self,
-                    "{}{}".format(i + 1, stages_suffixes[j]),
+                    f"{i + 1}{stages_suffixes[j]}",
                     conv3x3(in_planes if (i == 0) and (j == 0) else out_planes, out_planes, stride=1, bias=(j == 0)),
                 )
         self.stride = 1
@@ -128,7 +128,7 @@ class RCUBlock(nn.Module):
             residual = x
             for j in range(self.n_stages):
                 x = F.relu(x)
-                x = getattr(self, "{}{}".format(i + 1, stages_suffixes[j]))(x)
+                x = getattr(self, f"{i + 1}{stages_suffixes[j]}")(x)
             x += residual
         return x
 
@@ -154,11 +154,11 @@ def maybe_download(model_name, model_url, model_dir=None, map_location=None):
         model_dir = os.getenv("TORCH_MODEL_ZOO", os.path.join(torch_home, "models"))
     if not os.path.exists(model_dir):
         os.makedirs(model_dir)
-    filename = "{}.pth.tar".format(model_name)
+    filename = f"{model_name}.pth.tar"
     cached_file = os.path.join(model_dir, filename)
     if not os.path.exists(cached_file):
         url = model_url
-        sys.stderr.write('Downloading: "{}" to {}\n'.format(url, cached_file))
+        sys.stderr.write(f'Downloading: "{url}" to {cached_file}\n')
         urllib.request.urlretrieve(url, cached_file)
     return torch.load(cached_file, map_location=map_location)
 
@@ -167,7 +167,7 @@ class BasicBlock(nn.Module):
     expansion = 1
 
     def __init__(self, inplanes, planes, stride=1, downsample=None):
-        super(BasicBlock, self).__init__()
+        super().__init__()
         self.conv1 = conv3x3(inplanes, planes, stride)
         self.bn1 = nn.BatchNorm2d(planes)
         self.relu = nn.ReLU(inplace=True)
@@ -199,7 +199,7 @@ class Bottleneck(nn.Module):
     expansion = 4
 
     def __init__(self, inplanes, planes, stride=1, downsample=None):
-        super(Bottleneck, self).__init__()
+        super().__init__()
         self.conv1 = nn.Conv2d(inplanes, planes, kernel_size=1, bias=False)
         self.bn1 = nn.BatchNorm2d(planes)
         self.conv2 = nn.Conv2d(planes, planes, kernel_size=3, stride=stride, padding=1, bias=False)
@@ -236,7 +236,7 @@ class Bottleneck(nn.Module):
 class refinenet(nn.Module):
     def __init__(self, block, layers, num_classes=21, dgf=False, dgf_r=4, dgf_eps=1e-2):
         self.inplanes = 64
-        super(refinenet, self).__init__()
+        super().__init__()
         self.do = nn.Dropout(p=0.5)
         self.conv1 = nn.Conv2d(3, 64, kernel_size=7, stride=2, padding=3, bias=False)
         self.bn1 = nn.BatchNorm2d(64)
