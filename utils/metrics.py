@@ -41,7 +41,6 @@ def ap_per_class(tp, conf, pred_cls, target_cls, plot=False, save_dir=".", names
     # Returns
         The average precision as computed in py-faster-rcnn.
     """
-
     # Sort by objectness
     i = np.argsort(-conf)
     tp, conf, pred_cls = tp[i], conf[i], pred_cls[i]
@@ -101,9 +100,8 @@ def compute_ap(recall, precision):
         recall:    The recall curve (list)
         precision: The precision curve (list)
     # Returns
-        Average precision, precision curve, recall curve
+        Average precision, precision curve, recall curve.
     """
-
     # Append sentinel values to beginning and end
     mrec = np.concatenate(([0.0], recall, [1.0]))
     mpre = np.concatenate(([1.0], precision, [0.0]))
@@ -136,6 +134,7 @@ class ConfusionMatrix:
         Return intersection-over-union (Jaccard index) of boxes.
 
         Both sets of boxes are expected to be in (x1, y1, x2, y2) format.
+
         Arguments:
             detections (Array[N, 6]), x1, y1, x2, y2, conf, class
             labels (Array[M, 5]), class, x1, y1, x2, y2
@@ -269,14 +268,15 @@ def box_iou(box1, box2, eps=1e-7):
     Return intersection-over-union (Jaccard index) of boxes.
 
     Both sets of boxes are expected to be in (x1, y1, x2, y2) format.
+
     Arguments:
         box1 (Tensor[N, 4])
         box2 (Tensor[M, 4])
+
     Returns:
         iou (Tensor[N, M]): the NxM matrix containing the pairwise
             IoU values for every element in boxes1 and boxes2
     """
-
     # inter(N,M) = (rb(N,M,2) - lt(N,M,2)).clamp(0).prod(2)
     (a1, a2), (b1, b2) = box1.unsqueeze(1).chunk(2, 2), box2.unsqueeze(0).chunk(2, 2)
     inter = (torch.min(a2, b2) - torch.max(a1, b1)).clamp(0).prod(2)
@@ -294,7 +294,6 @@ def bbox_ioa(box1, box2, eps=1e-7):
     box2:       np.array of shape(nx4)
     returns:    np.array of shape(n)
     """
-
     # Get the coordinates of bounding boxes
     b1_x1, b1_y1, b1_x2, b1_y2 = box1
     b2_x1, b2_y1, b2_x2, b2_y2 = box2.T
@@ -334,7 +333,7 @@ def plot_pr_curve(px, py, ap, save_dir=Path("pr_curve.png"), names=()):
     else:
         ax.plot(px, py, linewidth=1, color="grey")  # plot(recall, precision)
 
-    ax.plot(px, py.mean(1), linewidth=3, color="blue", label="all classes %.3f mAP@0.5" % ap[:, 0].mean())
+    ax.plot(px, py.mean(1), linewidth=3, color="blue", label=f"all classes {ap[:, 0].mean():.3f} mAP@0.5")
     ax.set_xlabel("Recall")
     ax.set_ylabel("Precision")
     ax.set_xlim(0, 1)

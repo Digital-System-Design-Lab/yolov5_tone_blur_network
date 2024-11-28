@@ -1,6 +1,6 @@
 # YOLOv5 🚀 by Ultralytics, AGPL-3.0 license
 """
-Export a YOLOv5 PyTorch model to other formats. TensorFlow exports authored by https://github.com/zldrobit
+Export a YOLOv5 PyTorch model to other formats. TensorFlow exports authored by https://github.com/zldrobit.
 
 Format                      | `export.py --include`         | Model
 ---                         | ---                           | ---
@@ -254,6 +254,7 @@ def export_openvino(file, metadata, half, int8, data, prefix=colorstr("OpenVINO:
             Quantization transform function.
 
             Extracts and preprocess input data from dataloader item for quantization.
+
             Parameters:
                data_item: Tuple with data item produced by DataLoader during iteration
             Returns:

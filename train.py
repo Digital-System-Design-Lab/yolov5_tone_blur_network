@@ -193,7 +193,7 @@ def train(hyp, opt, device, callbacks):  # hyp is path/to/hyp.yaml or hyp dictio
 
     class DownscalingNetwork(nn.Module):  # classifcation에서 regrssion으로 변경
         def __init__(self):
-            super(DownscalingNetwork, self).__init__()
+            super().__init__()
             self.resnet101 = models.resnet101(pretrained=True)
 
             # 기존 ResNet101의 마지막 FC 레이어 제거(그 후 새로운 것으로 교체)
@@ -297,7 +297,8 @@ def train(hyp, opt, device, callbacks):  # hyp is path/to/hyp.yaml or hyp dictio
     if opt.cos_lr:
         lf = one_cycle(1, hyp["lrf"], epochs)  # cosine 1->hyp['lrf']
     else:
-        lf = lambda x: (1 - x / epochs) * (1.0 - hyp["lrf"]) + hyp["lrf"]  # linear
+        def lf(x):
+            return (1 - x / epochs) * (1.0 - hyp["lrf"]) + hyp["lrf"]  # linear
     scheduler = lr_scheduler.LambdaLR(optimizer, lr_lambda=lf)  # plot_lr_scheduler(optimizer, scheduler, epochs)
 
     # EMA
@@ -490,7 +491,7 @@ def train(hyp, opt, device, callbacks):  # hyp is path/to/hyp.yaml or hyp dictio
                     align_corners=False,
                 )
                 print("downscaled_imgs size ", resized_imgs.size())
-                total_pixels = imgs.shape[2] * imgs.shape[3]  # original image의 total pixel(H x W)
+                imgs.shape[2] * imgs.shape[3]  # original image의 total pixel(H x W)
                 resized_imgs2 = F.interpolate(
                     resized_imgs, size=(640, 640), mode="bilinear", align_corners=False
                 )  # YOLOv5에 640x640 크기로 들어감
@@ -500,7 +501,7 @@ def train(hyp, opt, device, callbacks):  # hyp is path/to/hyp.yaml or hyp dictio
                 )  # loss scaled by batch_size // pred결과와 target 결과를 기반으로 loss 계산
                 reconstruction_loss = F.mse_loss(resized_imgs2, imgs)  # 0222 추가
                 print("reconstruction_loss : ", reconstruction_loss)
-                compressed_size_bits = encode_image_to_memory(
+                encode_image_to_memory(
                     resized_imgs, format="JPEG", quality=20
                 )  # downscaled img을 compression 한 후에 bit수(즉, file size)
                 # reference 논문 QP = 20으로 설정

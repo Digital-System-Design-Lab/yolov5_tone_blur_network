@@ -30,7 +30,7 @@ def diff_y(input, r):
 
 class BoxFilter(nn.Module):
     def __init__(self, r):
-        super(BoxFilter, self).__init__()
+        super().__init__()
 
         self.r = r
 
@@ -42,7 +42,7 @@ class BoxFilter(nn.Module):
 
 class FastGuidedFilter(nn.Module):
     def __init__(self, r, eps=1e-8):
-        super(FastGuidedFilter, self).__init__()
+        super().__init__()
 
         self.r = r
         self.eps = eps
@@ -84,7 +84,7 @@ class FastGuidedFilter(nn.Module):
 
 class GuidedFilter(nn.Module):
     def __init__(self, r, eps=1e-8):
-        super(GuidedFilter, self).__init__()
+        super().__init__()
 
         self.r = r
         self.eps = eps

@@ -14,7 +14,7 @@ from network.util_filters import lerp, rgb2lum, tanh_range
 
 class Filter(nn.Module):
     def __init__(self, net, cfg):
-        super(Filter, self).__init__()
+        super().__init__()
 
         self.cfg = cfg
         # self.height, self.width, self.channels = list(map(int, net.get_shape()[1:]))
@@ -100,14 +100,14 @@ class Filter(nn.Module):
 
         if high_res is not None:
             if self.no_high_res():
-                high_res_output = high_res
+                pass
             else:
                 self.high_res_mask = self.get_mask(high_res, mask_parameters)
                 # high_res_output = lerp(high_res,
                 #                        self.process(high_res, filter_parameters, defog, IcA),
                 #                        self.high_res_mask)
         else:
-            high_res_output = None
+            pass
         # return low_res_output, high_res_output, debug_info
         return low_res_output, filter_parameters
 
